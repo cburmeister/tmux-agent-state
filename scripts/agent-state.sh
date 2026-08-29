@@ -23,7 +23,7 @@
 #
 # Only meaningful inside tmux. Always exits 0 and prints nothing, so a broken
 # indicator can never block an agent.
-VERSION=0.2.2   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
+VERSION=0.3.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
 state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
 case "$state" in setup|ack|jump) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
@@ -36,7 +36,9 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # Overridable via global options in .tmux.conf:
 #   set -g @agent_state_marker    '...'      the tab suffix (default below; must mention @agent_state)
 #   set -g @agent_state_processes 'claude|node|codex|gemini|opencode|pi'   what counts as an agent pane
-#   set -g @agent_state_tabs      colour     colour the whole tab name by state, not just the marker (default: marker)
+#   set -g @agent_state_tabs      attention  whole tab red when blocked, glyph only otherwise (default)
+#                                 colour     whole tab coloured for every state
+#                                 marker     glyph only
 #   set -g @agent_state_borders   off        don't colour pane borders by state
 #   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (defaults: fg=red, fg=yellow, fg=green)
 #   set -g @agent_state_border_working 'fg=#f9e2af'
@@ -71,11 +73,13 @@ ensure_tmux() {
   fi
   # Optional: colour the whole tab by state. A style prefix is prepended to the formats; the
   # prefix in use is remembered so a changed or disabled option can remove it cleanly.
-  local want_prefix="" had_prefix sb sw sd
-  if [ "$(t show -gv @agent_state_tabs)" = colour ]; then
-    sb=$(t show -gv @agent_state_border_blocked); sw=$(t show -gv @agent_state_border_working); sd=$(t show -gv @agent_state_border_done)
-    want_prefix="#{?#{m:*blocked*,$PANES},#[${sb:-fg=red} bold],#{?#{m:*working*,$PANES},#[${sw:-fg=yellow}],#{?#{m:*done*,$PANES},#[${sd:-fg=green}],}}}"
-  fi
+  local want_prefix="" had_prefix tabs sb sw sd
+  tabs=$(t show -gv @agent_state_tabs); tabs=${tabs:-attention}
+  sb=$(t show -gv @agent_state_border_blocked); sw=$(t show -gv @agent_state_border_working); sd=$(t show -gv @agent_state_border_done)
+  case "$tabs" in
+    colour)    want_prefix="#{?#{m:*blocked*,$PANES},#[${sb:-fg=red} bold],#{?#{m:*working*,$PANES},#[${sw:-fg=yellow}],#{?#{m:*done*,$PANES},#[${sd:-fg=green}],}}}" ;;
+    attention) want_prefix="#{?#{m:*blocked*,$PANES},#[${sb:-fg=red} bold],}" ;;
+  esac
   had_prefix=$(t show -gv @agent_state_tab_prefix)
   for opt in window-status-format window-status-current-format; do
     cur=$(t show -gv "$opt"); body=${cur//"$OLD_MARKER"/}

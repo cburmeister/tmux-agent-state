@@ -8,7 +8,7 @@ Every window running an agent gets a marker on its tab:
 | Tab | State | Meaning |
 |---|---|---|
 | `3:api ~` (yellow) | working | the agent is running a turn |
-| `3:api !` (red, bold) | blocked | the agent needs you: a permission prompt, a question, or an error |
+| `3:api !` (whole tab red, bold) | blocked | the agent needs you: a permission prompt, a question, or an error |
 | `3:api ✓` (green) | done | the agent finished its turn |
 | `3:api` | idle | nothing to see |
 
@@ -115,8 +115,10 @@ set -g @agent_state_marker '#{?#{m:*blocked*,#{P:#{@agent_state} }},#[fg=red bol
 # Process names that count as "an agent is running in this pane". Default shown.
 set -g @agent_state_processes 'claude|node|codex|gemini|opencode|pi'
 
-# Colour the whole tab name by state, not just the marker. Default: marker only.
-set -g @agent_state_tabs colour
+# How much of the tab takes the state colour. Default "attention": the whole tab goes red
+# when blocked, other states show only the glyph. "colour": whole tab for every state.
+# "marker": glyph only.
+set -g @agent_state_tabs attention
 
 # Colour pane borders by state. Default on where tmux supports per-pane border
 # styles (probed at setup; older tmux gets the tabs only).

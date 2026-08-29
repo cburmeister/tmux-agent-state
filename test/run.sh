@@ -17,6 +17,7 @@ fresh() {   # new isolated server: windows 0 | sleeper (not an agent) | agent | 
   TMUX="$(T display -p '#{socket_path}'),0,0"; export TMUX
   T set -g @agent_state_processes 'claude|sleep'          # the test needs no real agent binary
   T set -g window-status-format '#I:#W'                   # no window flags, so tab assertions are stable
+  T set -g @agent_state_tabs marker                       # glyph-only baseline; the tabs modes get their own section
   A=$(T list-panes -t t:agent -F '#{pane_id}'); S=$(T list-panes -t t:sleeper -F '#{pane_id}')
   D1=$(T list-panes -t t:duo -F '#{pane_id}' | head -1); D2=$(T list-panes -t t:duo -F '#{pane_id}' | tail -1)
 }
@@ -94,14 +95,20 @@ T set -g @agent_state_border_blocked 'fg=#f38ba8,bold'; run blocked; chk border-
 T set -g @agent_state_marker ' X'; T set -g window-status-format '#I:#W'; run working; run working
 chk custom-marker-once "$(T show -gv window-status-format)" "#I:#W X"; T set -gu @agent_state_marker; run clear
 
+# --- @agent_state_tabs: attention (default) colours the whole tab for blocked only ---
+T set -g window-status-format '#I:#W'; T set -gu @agent_state_tabs; run working; run working
+chk tabs-attention-working-plain "$(tab t:agent)" "2:agent#[fg=yellow] ~"
+run blocked; chk tabs-attention-blocked-red "$(tab t:agent)" "#[fg=red bold]2:agent#[fg=red bold] !"
+run 'done'; chk tabs-attention-done-plain "$(tab t:agent)" "2:agent#[fg=green] ✓"
+T set -g @agent_state_tabs marker; run working; chk tabs-marker-plain "$(tab t:agent)" "2:agent#[fg=yellow] ~"
 # --- @agent_state_tabs colour: whole tab takes the state colour --------------
 T set -g window-status-format '#I:#W'; T set -g @agent_state_tabs colour; run working; run working
 chk tabs-colour-prefixed-once "$(T show -gv window-status-format | grep -o 'm:\*blocked\*' | wc -l | tr -d ' ')" "2"
 chk tabs-colour-renders "$(tab t:agent)" "#[fg=yellow]2:agent#[fg=yellow] ~"
 T set -g @agent_state_border_working 'fg=#f9e2af'; run working
 chk tabs-colour-restyled "$(tab t:agent | grep -o 'f9e2af' | wc -l | tr -d ' ')" "1"; T set -gu @agent_state_border_working
-T set -gu @agent_state_tabs; run working
-chk tabs-colour-removed "$(T show -gv window-status-format | cut -c1-5)/$(T show -gv @agent_state_tab_prefix 2>/dev/null)" "#I:#W/"; run clear
+T set -g @agent_state_tabs marker; run working
+chk tabs-colour-removed "$(T show -gv window-status-format | cut -c1-5)/$(T show -gv @agent_state_tab_prefix 2>/dev/null)" "#I:#W/"; T set -gu @agent_state_tabs; run clear
 
 # --- failure paths: exit 0, no output ---------------------------------------
 out=$( (unset TMUX_PANE; $H blocked; echo "rc=$?") 2>&1 );                 chk outside-tmux-silent "$out" "rc=0"
