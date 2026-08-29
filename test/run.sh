@@ -82,6 +82,12 @@ T set -p -t "$S" @agent_state 'done'; visit t:sleeper
 chk stale-non-agent-cleared "$(st "$S")" ""
 run clear; chk clear "$(st "$A")/$(bd "$A")" "/"
 
+# --- jump: blocked first, then done, else stay put --------------------------
+run clear; runp "$D1" clear; runp "$D2" clear
+runp "$D2" 'done'; run blocked; visit t:0; "$H" jump; chk jump-prefers-blocked "$(T display -p '#W')" agent
+run clear; visit t:0; "$H" jump;                     chk jump-falls-back-to-done "$(T display -p '#W')" duo
+runp "$D2" clear; visit t:0; "$H" jump;              chk jump-stays-when-nothing "$(T display -p '#I')" 0
+
 # --- options -----------------------------------------------------------------
 T set -g @agent_state_borders off; run blocked; chk borders-off "$(st "$A")/$(bd "$A")" "blocked/"; T set -gu @agent_state_borders; run clear
 T set -g @agent_state_marker ' X'; T set -g window-status-format '#I:#W'; run working; run working

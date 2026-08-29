@@ -6,6 +6,7 @@
 #   remind                            re-ring the bell if still blocked/done
 #   clear                             remove the state (session ended)
 #   setup                             configure tmux only (used by the tmux plugin entry point)
+#   jump                              select the first window with a blocked pane, else a done one
 #   ack <window_id>                   internal: run by the tmux hook when the current window changes
 #
 # This script is the whole interface between tmux and any agent. Adapters for
@@ -22,10 +23,10 @@
 #
 # Only meaningful inside tmux. Always exits 0 and prints nothing, so a broken
 # indicator can never block an agent.
-VERSION=0.1.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
+VERSION=0.2.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
 state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
-case "$state" in setup|ack) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
+case "$state" in setup|ack|jump) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
 
 TMUX_BIN=$(command -v tmux || echo /opt/homebrew/bin/tmux); [ -x "$TMUX_BIN" ] || exit 0
 t() { "$TMUX_BIN" "$@" 2>/dev/null; }
@@ -104,8 +105,15 @@ ensure_tmux() {
     fi
   fi
 }
-[ "$state" = ack ] || ensure_tmux    # ack is fired by the hook; it must never (re)configure
+case "$state" in ack|jump) ;; *) ensure_tmux ;; esac   # hook- and key-driven modes must never (re)configure
 [ "$state" = setup ] && exit 0
+if [ "$state" = jump ]; then   # bind in .tmux.conf: bind b run-shell '"$(tmux show -gv @agent_state_script)" jump'
+  for want in blocked 'done'; do
+    w=$(t list-panes -a -F '#{window_id} #{@agent_state}' | awk -v s="$want" '$2==s{print $1; exit}')
+    [ -n "$w" ] && { t select-window -t "$w"; exit 0; }
+  done
+  t display-message 'no agent needs you'; exit 0
+fi
 
 # ---- per-pane rendering -----------------------------------------------------
 border() {   # border <pane> <state|"">

@@ -95,6 +95,15 @@ choose when it happened. Updating an adapter takes effect in the running tmux
 server on its next event, a newer copy of the script replaces what an older one
 set up. No reason to restart tmux.
 
+## Jump to whatever needs you
+
+```tmux
+bind b run-shell '"$(tmux show -gv @agent_state_script)" jump'
+```
+
+`prefix` + `b` selects the first window with a `blocked` pane, else the first
+with a `done` one, else tells you nothing needs you.
+
 ## Options
 
 Global options in `.tmux.conf`, read at setup.
