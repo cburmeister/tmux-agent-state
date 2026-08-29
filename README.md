@@ -115,6 +115,9 @@ set -g @agent_state_marker '#{?#{m:*blocked*,#{P:#{@agent_state} }},#[fg=red bol
 # Process names that count as "an agent is running in this pane". Default shown.
 set -g @agent_state_processes 'claude|node|codex|gemini|opencode|pi'
 
+# Colour the whole tab name by state, not just the marker. Default: marker only.
+set -g @agent_state_tabs colour
+
 # Colour pane borders by state. Default on where tmux supports per-pane border
 # styles (probed at setup; older tmux gets the tabs only).
 set -g @agent_state_borders off

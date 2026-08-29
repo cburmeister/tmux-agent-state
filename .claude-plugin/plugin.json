@@ -1,6 +1,6 @@
 {
   "name": "tmux-agent-state",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Herdr-style agent state for tmux: colours each Claude Code window tab working (~) / blocked (!) / done (\u2713), with a bell when Claude needs you. Zero config: configures the running tmux server itself.",
   "author": {
     "name": "Corey Burmeister"

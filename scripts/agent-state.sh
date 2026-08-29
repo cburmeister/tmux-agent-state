@@ -23,7 +23,7 @@
 #
 # Only meaningful inside tmux. Always exits 0 and prints nothing, so a broken
 # indicator can never block an agent.
-VERSION=0.2.1   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
+VERSION=0.2.2   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
 state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
 case "$state" in setup|ack|jump) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
@@ -36,6 +36,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # Overridable via global options in .tmux.conf:
 #   set -g @agent_state_marker    '...'      the tab suffix (default below; must mention @agent_state)
 #   set -g @agent_state_processes 'claude|node|codex|gemini|opencode|pi'   what counts as an agent pane
+#   set -g @agent_state_tabs      colour     colour the whole tab name by state, not just the marker (default: marker)
 #   set -g @agent_state_borders   off        don't colour pane borders by state
 #   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (defaults: fg=red, fg=yellow, fg=green)
 #   set -g @agent_state_border_working 'fg=#f9e2af'
@@ -68,14 +69,27 @@ ensure_tmux() {
   if [ -z "$published" ] || supersedes "$published" "$pubver"; then
     t set -g @agent_state_script "$SELF"; t set -g @agent_state_version "$VERSION"
   fi
+  # Optional: colour the whole tab by state. A style prefix is prepended to the formats; the
+  # prefix in use is remembered so a changed or disabled option can remove it cleanly.
+  local want_prefix="" had_prefix sb sw sd
+  if [ "$(t show -gv @agent_state_tabs)" = colour ]; then
+    sb=$(t show -gv @agent_state_border_blocked); sw=$(t show -gv @agent_state_border_working); sd=$(t show -gv @agent_state_border_done)
+    want_prefix="#{?#{m:*blocked*,$PANES},#[${sb:-fg=red} bold],#{?#{m:*working*,$PANES},#[${sw:-fg=yellow}],#{?#{m:*done*,$PANES},#[${sd:-fg=green}],}}}"
+  fi
+  had_prefix=$(t show -gv @agent_state_tab_prefix)
   for opt in window-status-format window-status-current-format; do
-    cur=$(t show -gv "$opt"); cur=${cur//"$OLD_MARKER"/}
-    rest=${cur//"$marker"/}; n=$(( (${#cur} - ${#rest}) / ${#marker} ))
-    if [ "$n" -gt 1 ]; then t set -g "$opt" "${rest}${marker}"          # two first-runs raced; collapse to one
-    elif [ "$n" -eq 0 ]; then case "$cur" in *@agent_state*) ;; *) t set -g "$opt" "${cur}${marker}" ;; esac   # hand-wired formats are left alone
-    elif [ "$cur" != "$(t show -gv "$opt")" ]; then t set -g "$opt" "$cur"   # only the old marker was removed
+    cur=$(t show -gv "$opt"); body=${cur//"$OLD_MARKER"/}
+    [ -n "$had_prefix" ] && body=${body#"$had_prefix"}
+    [ -n "$want_prefix" ] && body=${body#"$want_prefix"}
+    rest=${body//"$marker"/}; n=$(( (${#body} - ${#rest}) / ${#marker} ))
+    if [ "$n" -gt 1 ]; then body="${rest}${marker}"                       # two first-runs raced; collapse to one
+    elif [ "$n" -eq 0 ]; then case "$body" in *@agent_state*) ;; *) body="${body}${marker}" ;; esac   # hand-wired formats are left alone
     fi
+    [ "${want_prefix}${body}" = "$cur" ] || t set -g "$opt" "${want_prefix}${body}"
   done
+  if [ "$had_prefix" != "$want_prefix" ]; then
+    if [ -n "$want_prefix" ]; then t set -g @agent_state_tab_prefix "$want_prefix"; else t set -gu @agent_state_tab_prefix; fi
+  fi
   # Window-change hook: ack the new window's panes. Remove a 0.2.x format-based hook and any
   # duplicate of ours (highest index first, so earlier indices stay valid), then add ours once.
   local seen=0 hpath
