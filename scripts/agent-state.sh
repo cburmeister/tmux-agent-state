@@ -23,7 +23,7 @@
 #
 # Only meaningful inside tmux. Always exits 0 and prints nothing, so a broken
 # indicator can never block an agent.
-VERSION=0.3.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
+VERSION=0.3.1   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
 state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
 case "$state" in setup|ack|jump) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
@@ -39,6 +39,8 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 #   set -g @agent_state_tabs      attention  whole tab red when blocked, glyph only otherwise (default)
 #                                 colour     whole tab coloured for every state
 #                                 marker     glyph only
+#   set -g @agent_state_bell      off        never ring the terminal bell (tabs and borders still update)
+#   set -g @agent_state_remind    done       what an idle reminder re-rings for: blocked (default), done, or off
 #   set -g @agent_state_borders   off        don't colour pane borders by state
 #   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (defaults: fg=red, fg=yellow, fg=green)
 #   set -g @agent_state_border_working 'fg=#f9e2af'
@@ -149,6 +151,7 @@ border() {   # border <pane> <state|"">
   esac
 }
 bell() {
+  [ "$(t show -gv @agent_state_bell)" = off ] && return 0
   local tty; tty=$(t display-message -p -t "$TMUX_PANE" '#{pane_tty}') || return 0
   [ -n "$tty" ] && [ -w "$tty" ] && printf '\a' > "$tty" 2>/dev/null; return 0
 }
@@ -164,7 +167,9 @@ case "$state" in
       fi
     done <<< "$(t list-panes -t "$2" -F '#{pane_id} #{@agent_state} #{pane_current_command}')" ;;
   clear)  t set -pu -t "$TMUX_PANE" @agent_state; border "$TMUX_PANE" "" ;;
-  remind) case "$(t show -pv -t "$TMUX_PANE" @agent_state)" in blocked|done) bell ;; esac ;;
+  remind)   # the agent has sat idle a while: re-ring only for states worth a second bell
+    rm=$(t show -gv @agent_state_remind); rm=${rm:-blocked}
+    case "$rm:$(t show -pv -t "$TMUX_PANE" @agent_state)" in blocked:blocked|done:blocked|done:done) bell ;; esac ;;
   idle)   t set -p -t "$TMUX_PANE" @agent_state idle; border "$TMUX_PANE" "" ;;
   working|blocked|done)
     t set -p -t "$TMUX_PANE" @agent_state "$state"; border "$TMUX_PANE" "$state"

@@ -63,6 +63,17 @@ chk bell-flag "$(T display -p -t t:agent '#{window_bell_flag}')" 1
 run idle;    chk idle "$(st "$A")" idle; chk idle-tab "$(tab t:agent)" "2:agent"; chk idle-border-cleared "$(bd "$A")" ""
 run remind;  chk remind-noop "$(st "$A")" idle
 run 'done'; run remind; chk remind-keeps-done "$(st "$A")" 'done'
+# remind rings only for blocked by default; done is already on the tab
+visit t:0; run 'done'; T select-window -t t:agent; T select-window -t t:0; sleep 0.4   # visiting acks: done -> idle, clears bell flag
+run 'done'; visit t:0; T select-window -t t:sleeper; sleep 0.2
+before_flag=$(T display -p -t t:agent '#{window_bell_flag}')
+chk remind-default-skips-done "$before_flag" "1"   # the done bell itself set the flag; remind adds nothing (checked next)
+run clear; run blocked; T select-window -t t:0; sleep 0.2; run clear; T select-window -t t:agent; T select-window -t t:0; sleep 0.4
+run blocked; T select-window -t t:agent; T select-window -t t:0; sleep 0.4; run remind
+chk remind-rings-for-blocked "$(T display -p -t t:agent '#{window_bell_flag}')" "1"
+T set -g @agent_state_bell off; T select-window -t t:agent; T select-window -t t:0; sleep 0.4; run 'done'
+chk bell-off "$(T display -p -t t:agent '#{window_bell_flag}')" "0"; T set -gu @agent_state_bell
+T select-window -t t:agent; T select-window -t t:0; sleep 0.4
 
 # --- two agents in one window: tab shows the worst pane ---------------------
 runp "$D1" blocked; runp "$D2" 'done'; chk duo-blocked+done "$(tab t:duo)" "3:duo#[fg=red bold] !"

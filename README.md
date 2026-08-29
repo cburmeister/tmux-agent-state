@@ -120,6 +120,13 @@ set -g @agent_state_processes 'claude|node|codex|gemini|opencode|pi'
 # "marker": glyph only.
 set -g @agent_state_tabs attention
 
+# Ring the terminal bell on blocked/done. Default on.
+set -g @agent_state_bell off
+
+# What an idle reminder (Claude's idle_prompt, ~60s after finishing) re-rings for.
+# Default "blocked": a stalled agent gets a second bell; a finished one is already green.
+set -g @agent_state_remind done   # or off
+
 # Colour pane borders by state. Default on where tmux supports per-pane border
 # styles (probed at setup; older tmux gets the tabs only).
 set -g @agent_state_borders off
