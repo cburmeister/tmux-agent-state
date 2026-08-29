@@ -1,0 +1,7 @@
+{
+  "name": "cburmeister",
+  "owner": { "name": "Corey Burmeister" },
+  "plugins": [
+    { "name": "tmux-agent-state", "source": "./", "description": "Colour Claude Code tmux window tabs by agent state (working / blocked / done)." }
+  ]
+}
