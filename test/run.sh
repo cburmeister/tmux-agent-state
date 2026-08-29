@@ -90,6 +90,7 @@ runp "$D2" clear; visit t:0; "$H" jump;              chk jump-stays-when-nothing
 
 # --- options -----------------------------------------------------------------
 T set -g @agent_state_borders off; run blocked; chk borders-off "$(st "$A")/$(bd "$A")" "blocked/"; T set -gu @agent_state_borders; run clear
+T set -g @agent_state_border_blocked 'fg=#f38ba8,bold'; run blocked; chk border-style-option "$(bd "$A")" "$(b 'fg=#f38ba8,bold')"; T set -gu @agent_state_border_blocked; run clear
 T set -g @agent_state_marker ' X'; T set -g window-status-format '#I:#W'; run working; run working
 chk custom-marker-once "$(T show -gv window-status-format)" "#I:#W X"; T set -gu @agent_state_marker; run clear
 

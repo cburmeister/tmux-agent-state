@@ -23,7 +23,7 @@
 #
 # Only meaningful inside tmux. Always exits 0 and prints nothing, so a broken
 # indicator can never block an agent.
-VERSION=0.2.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
+VERSION=0.2.1   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
 state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
 case "$state" in setup|ack|jump) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
@@ -37,6 +37,9 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 #   set -g @agent_state_marker    '...'      the tab suffix (default below; must mention @agent_state)
 #   set -g @agent_state_processes 'claude|node|codex|gemini|opencode|pi'   what counts as an agent pane
 #   set -g @agent_state_borders   off        don't colour pane borders by state
+#   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (defaults: fg=red, fg=yellow, fg=green)
+#   set -g @agent_state_border_working 'fg=#f9e2af'
+#   set -g @agent_state_border_done    'fg=#a6e3a1'
 DEFAULT_PROCESSES='claude|node|codex|gemini|opencode|pi'
 PANES='#{P:#{@agent_state} }'   # every pane's state in this window, space separated
 DEFAULT_MARKER="#{?#{m:*blocked*,$PANES},#[fg=red bold] !,#{?#{m:*working*,$PANES},#[fg=yellow] ~,#{?#{m:*done*,$PANES},#[fg=green] ✓,}}}"
@@ -119,10 +122,11 @@ fi
 border() {   # border <pane> <state|"">
   [ "$(t show -gv @agent_state_borders)" = off ] && return 0
   [ "$(t show -gv @agent_state_borders_supported)" = 1 ] || return 0
+  local style
   case "$2" in
-    blocked) t set -p -t "$1" pane-border-style 'fg=red' ;;
-    working) t set -p -t "$1" pane-border-style 'fg=yellow' ;;
-    done)    t set -p -t "$1" pane-border-style 'fg=green' ;;
+    blocked) style=$(t show -gv @agent_state_border_blocked); t set -p -t "$1" pane-border-style "${style:-fg=red}" ;;
+    working) style=$(t show -gv @agent_state_border_working); t set -p -t "$1" pane-border-style "${style:-fg=yellow}" ;;
+    done)    style=$(t show -gv @agent_state_border_done);    t set -p -t "$1" pane-border-style "${style:-fg=green}" ;;
     *)       t set -pu -t "$1" pane-border-style ;;
   esac
 }

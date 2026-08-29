@@ -118,6 +118,11 @@ set -g @agent_state_processes 'claude|node|codex|gemini|opencode|pi'
 # Colour pane borders by state. Default on where tmux supports per-pane border
 # styles (probed at setup; older tmux gets the tabs only).
 set -g @agent_state_borders off
+
+# Border style per state. Defaults shown.
+set -g @agent_state_border_blocked 'fg=red'
+set -g @agent_state_border_working 'fg=yellow'
+set -g @agent_state_border_done    'fg=green'
 ```
 
 If your `window-status-format` already contains `@agent_state` (you hand-wired
