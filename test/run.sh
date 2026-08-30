@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests against an isolated tmux server (stock config). Never touches your real tmux.
 # Usage: test/run.sh            (add INTEGRATION=1 to also run a real `claude -p` with --plugin-dir)
-# Needs: bash, tmux >= 3.2. No agent binaries.
+# Needs: bash, tmux >= 3.2, jq. No agent binaries.
 cd "$(dirname "$0")/.." || exit 1
 unset TMUX_PANE   # the developer's own pane must not leak into calls that set no pane (setup, jump)
 H=$PWD/scripts/agent-state.sh; L=agtest-$$
@@ -14,8 +14,8 @@ fresh() {   # new isolated server: windows 0 | sleeper (not an agent) | agent | 
   T new-window -d -n agent 'sleep 900'
   T new-window -d -n duo 'sleep 900'; T split-window -d -t t:duo 'sleep 900'
   T new-window -d -n shell
-  sleep 0.3
   TMUX="$(T display -p '#{socket_path}'),0,0"; export TMUX
+  waitfor sleep T display -p -t t:agent '#{pane_current_command}'   # panes' commands are up (ack matches on them)
   T set -g @agent_state_processes 'claude|sleep'          # the test needs no real agent binary
   T set -g window-status-format '#I:#W'                   # no window flags, so tab assertions are stable
   T set -g @agent_state_tabs marker                       # glyph-only baseline; the tabs modes get their own section
@@ -29,7 +29,10 @@ bd() { T show -pv -t "$1" pane-border-style 2>/dev/null; }
 tab() { T display -p -t "$1" '#{T:window-status-format}'; }
 runp() { TMUX_PANE="$1" "$H" "$2"; }
 run() { runp "$A" "$1"; }
-visit() { T select-window -t "$1"; sleep 0.4; }   # ack runs via run-shell -b, asynchronously
+waitfor() { local want=$1; shift; for _ in $(seq 1 60); do [ "$("$@")" = "$want" ] && return 0; sleep 0.05; done; return 1; }   # poll "$@" until it prints $1 (3s cap)
+visit() { T select-window -t "$1"; sleep 0.3; }   # ack runs via run-shell -b, asynchronously; assertions that expect a change also waitfor it
+flag() { T display -p -t t:agent '#{window_bell_flag}'; }
+unflag() { T select-window -t t:agent; T select-window -t t:0; waitfor 0 flag; }   # visiting clears tmux's bell flag (and acks done -> idle)
 count() { T show -gv "$1" | grep -o 'fg=yellow' | wc -l | tr -d ' '; }
 hooks() { T show-hooks -g session-window-changed; }
 
@@ -60,21 +63,23 @@ run working; chk working "$(st "$A")" working; chk working-tab "$(tab t:agent)" 
 run blocked; chk blocked "$(st "$A")" blocked; chk blocked-tab "$(tab t:agent)" "2:agent#[fg=red bold] !"; chk blocked-border "$(bd "$A")" "$(b fg=red)"
 run working; chk unblock "$(st "$A")" working
 run 'done';  chk done-state "$(st "$A")" 'done'; chk done-tab "$(tab t:agent)" "2:agent#[fg=green] ✓"; chk done-border "$(bd "$A")" "$(b fg=green)"
-chk bell-flag "$(T display -p -t t:agent '#{window_bell_flag}')" 1
+waitfor 1 flag; chk bell-flag "$(flag)" 1   # the bell is written to the pane's tty; tmux flags it asynchronously
 run idle;    chk idle "$(st "$A")" idle; chk idle-tab "$(tab t:agent)" "2:agent"; chk idle-border-cleared "$(bd "$A")" ""
 run remind;  chk remind-noop "$(st "$A")" idle
 run 'done'; run remind; chk remind-keeps-done "$(st "$A")" 'done'
-# remind rings only for blocked by default; done is already on the tab
-visit t:0; run 'done'; T select-window -t t:agent; T select-window -t t:0; sleep 0.4   # visiting acks: done -> idle, clears bell flag
-run 'done'; visit t:0; T select-window -t t:sleeper; sleep 0.2
-before_flag=$(T display -p -t t:agent '#{window_bell_flag}')
-chk remind-default-skips-done "$before_flag" "1"   # the done bell itself set the flag; remind adds nothing (checked next)
-run clear; run blocked; T select-window -t t:0; sleep 0.2; run clear; T select-window -t t:agent; T select-window -t t:0; sleep 0.4
-run blocked; T select-window -t t:agent; T select-window -t t:0; sleep 0.4; run remind
-chk remind-rings-for-blocked "$(T display -p -t t:agent '#{window_bell_flag}')" "1"
-T set -g @agent_state_bell off; T select-window -t t:agent; T select-window -t t:0; sleep 0.4; run 'done'
-chk bell-off "$(T display -p -t t:agent '#{window_bell_flag}')" "0"; T set -gu @agent_state_bell
-T select-window -t t:agent; T select-window -t t:0; sleep 0.4
+# --- bell and remind ---------------------------------------------------------
+# The flag is binary, so to see whether remind rings, the state is set with the bell off first.
+silently() { T set -g @agent_state_bell off; unflag; run "$1"; T set -gu @agent_state_bell; }
+unflag; run blocked; waitfor 1 flag;                    chk bell-blocked "$(flag)" 1
+T set -g @agent_state_bell off; unflag; run 'done'; sleep 0.2; chk bell-off "$(flag)" 0; T set -gu @agent_state_bell
+silently 'done'; run remind; sleep 0.2;                  chk remind-default-skips-done "$(flag)" 0   # a finished agent is already green
+silently blocked; run remind; waitfor 1 flag;            chk remind-rings-for-blocked "$(flag)" 1
+T set -g @agent_state_remind 'done'
+silently 'done'; run remind; waitfor 1 flag;             chk remind-done-option-rings-for-done "$(flag)" 1
+silently blocked; run remind; waitfor 1 flag;            chk remind-done-option-rings-for-blocked "$(flag)" 1
+T set -g @agent_state_remind off
+silently blocked; run remind; sleep 0.2;                 chk remind-off "$(flag)" 0
+T set -gu @agent_state_remind; run idle; unflag
 
 # --- two agents in one window: tab shows the worst pane ---------------------
 runp "$D1" blocked; runp "$D2" 'done'; chk duo-blocked+done "$(tab t:duo)" "3:duo#[fg=red bold] !"
@@ -84,14 +89,14 @@ runp "$D2" idle;                       chk duo-idle+idle "$(tab t:duo)" "3:duo"
 runp "$D1" blocked; runp "$D2" 'done';  chk duo-borders "$(bd "$D1")/$(bd "$D2")" "$(b fg=red)/$(b fg=green)"
 
 # --- ack on visit: per pane --------------------------------------------------
-runp "$D1" working; runp "$D2" 'done'; visit t:0; visit t:duo
+runp "$D1" working; runp "$D2" 'done'; visit t:0; visit t:duo; waitfor idle st "$D2"
 chk ack-keeps-working-pane "$(st "$D1")/$(bd "$D1")" "working/$(b fg=yellow)"
 chk ack-done-pane-to-idle "$(st "$D2")/$(bd "$D2")" "idle/"
-visit t:agent; visit t:0; run 'done'; T last-window; sleep 0.4;  chk ack-last "$(st "$A")" idle
-run 'done'; visit t:sleeper; T next-window; sleep 0.4;           chk ack-next "$(st "$A")" idle
-run 'done'; visit t:duo; T previous-window; sleep 0.4;           chk ack-prev "$(st "$A")" idle
+visit t:agent; visit t:0; run 'done'; T last-window; waitfor idle st "$A";  chk ack-last "$(st "$A")" idle
+run 'done'; visit t:sleeper; T next-window; waitfor idle st "$A";           chk ack-next "$(st "$A")" idle
+run 'done'; visit t:duo; T previous-window; waitfor idle st "$A";           chk ack-prev "$(st "$A")" idle
 run blocked; visit t:0; visit t:agent;                           chk ack-keeps-blocked "$(st "$A")" blocked
-T set -p -t "$S" @agent_state 'done'; visit t:sleeper
+T set -p -t "$S" @agent_state 'done'; visit t:sleeper; waitfor "" st "$S"
 chk stale-non-agent-cleared "$(st "$S")" ""
 run clear; chk clear "$(st "$A")/$(bd "$A")" "/"
 
@@ -102,7 +107,7 @@ run clear; visit t:0; "$H" jump;                     chk jump-falls-back-to-done
 runp "$D2" clear; visit t:0; "$H" jump;              chk jump-stays-when-nothing "$(T display -p '#I')" 0
 # a blocked pane in another session: the attached client (control mode here) is switched there
 T new-session -d -s other 'sleep 900'; O=$(T list-panes -t other -F '#{pane_id}')
-(sleep 30 | T -C attach -t t >/dev/null 2>&1) & CLIENT=$!; sleep 0.3
+(sleep 30 | T -C attach -t t >/dev/null 2>&1) & CLIENT=$!; waitfor t T list-clients -F '#{client_session}'
 runp "$O" blocked; "$H" jump;                        chk jump-crosses-sessions "$(T list-clients -F '#{client_session}')" other
 T switch-client -t t:0; runp "$O" clear; kill $CLIENT 2>/dev/null; T detach-client -a 2>/dev/null; T kill-session -t other
 
@@ -146,7 +151,7 @@ T set -g @agent_state_processes "claude|sleep'; kill-server; '"; ./agent-state.t
 chk bad-processes-falls-back "$(T show -gv @agent_state_processes_active)" "claude|node|bun|codex|gemini|opencode|pi"
 # setup at config-load time, how tpack/TPM run it: a run-shell in the config, before any pane exists
 T kill-server 2>/dev/null; sleep 0.2; CONF=$(mktemp); printf 'set -g window-status-format "#I:#W"\nrun-shell "%s/agent-state.tmux"\n' "$PWD" > "$CONF"
-(unset TMUX; T -f "$CONF" new-session -d -s t 'sleep 900'); sleep 0.5; rm -f "$CONF"
+(unset TMUX; T -f "$CONF" new-session -d -s t 'sleep 900'); waitfor 1 count window-status-format; rm -f "$CONF"
 chk setup-from-config "$(count window-status-format)/$(T show -gv window-status-format | grep -c '^#{?#{m:\*blocked\*.*#I:#W')/$(hooks | grep -c agent-state.sh)/$(T show -gv @agent_state_script)" "1/1/1/$H"
 fresh; ./agent-state.tmux
 chk tpm-setup-configures "$(hooks | grep -c agent-state.sh)/$(count window-status-format)/$(T show -gv @agent_state_script)" "1/1/$H"

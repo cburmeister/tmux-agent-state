@@ -1,11 +1,23 @@
 name: test
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04   # tmux 3.2a: the oldest supported
+          - os: ubuntu-24.04   # tmux 3.4
+          - os: macos-latest   # Homebrew tmux, /bin/bash 3.2: what most users run
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update -q && sudo apt-get install -y -q tmux shellcheck
-      - run: tmux -V
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q tmux shellcheck jq
+      - if: runner.os == 'macOS'
+        run: brew install tmux shellcheck
+      - run: tmux -V && bash --version | head -1 && jq --version
       - run: shellcheck -s bash scripts/agent-state.sh agent-state.tmux test/run.sh
       - run: test/run.sh
