@@ -35,14 +35,19 @@ directory, tpack uses hashed directory names.
 |---|---|---|---|---|---|
 | idle | `SessionStart` | `SessionStart` | `SessionStart` | session start | session start |
 | working | `UserPromptSubmit`, `PostToolUse` | same | `BeforeAgent`, `AfterTool` | `tool.execute.after` | `tool_call` |
-| blocked | `Notification: permission_prompt`, `StopFailure` | `PermissionRequest` | `Notification` | permission event | ? |
+| blocked | `PermissionRequest`, `PreToolUse: AskUserQuestion`, `Notification: permission_prompt, elicitation_dialog, agent_needs_input`, `StopFailure` | `PermissionRequest` | `Notification` | permission event | ? |
 | done | `Stop` | `Stop` | `AfterAgent` | `session.idle` | agent end |
 | remind | `Notification: idle_prompt` | ? | ? | ? | ? |
 | clear | `SessionEnd` | ? | `SessionEnd` | ? | ? |
 
 A `?` means not verified against that agent's docs yet. Fill it in when you
 build the adapter. `blocked` is only as good as the agent's own permission
-event.
+event. Map every way the agent can wait on the human, not just permissions:
+Claude Code's `AskUserQuestion` is a tool call, so it needs its own hook or the
+pane sits at `working` while the agent waits for an answer.
+
+`test/run.sh` pins the Claude Code mapping (`hooks-contract`); update the test
+and this table together.
 
 ## Adding one
 

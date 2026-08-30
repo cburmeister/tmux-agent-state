@@ -139,6 +139,9 @@ T set -p -t "$A" @agent_state working; visit t:agent;  chk custom-process-kept "
 
 # --- a plugin update supersedes the hook it left behind, wherever the copies live -------
 chk version-in-step "$(grep -o '^VERSION=[0-9.]*' "$H" | cut -d= -f2)" "$(jq -r .version .claude-plugin/plugin.json)"
+# the Claude Code adapter's event -> word contract, as documented in README.md and adapters/README.md
+chk hooks-contract "$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "*") as $m | .hooks[].command | sub(".*agent-state.sh ";"") | "\($e):\($m)=\(.)"' hooks/hooks.json | tr '\n' ' ')" \
+  "SessionStart:startup|resume|clear=idle UserPromptSubmit:*=working PreToolUse:AskUserQuestion=blocked PostToolUse:*=working PermissionRequest:*=blocked Notification:permission_prompt|elicitation_dialog|agent_needs_input=blocked Notification:idle_prompt=remind Stop:*=done StopFailure:*=blocked SessionEnd:*=clear "
 fresh; V=$(mktemp -d); mkdir -p "$V/old/scripts" "$V/new/scripts"
 sed 's/^VERSION=.*/VERSION=0.0.1/' "$H" > "$V/old/scripts/agent-state.sh"; sed 's/^VERSION=.*/VERSION=0.0.2/' "$H" > "$V/new/scripts/agent-state.sh"; chmod +x "$V"/*/scripts/agent-state.sh
 TMUX_PANE="$A" "$V/old/scripts/agent-state.sh" idle

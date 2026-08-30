@@ -21,12 +21,33 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/agent-state.sh blocked"
+          }
+        ],
+        "matcher": "AskUserQuestion"
+      }
+    ],
     "PostToolUse": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/agent-state.sh working"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/agent-state.sh blocked"
           }
         ]
       }
@@ -39,7 +60,7 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/agent-state.sh blocked"
           }
         ],
-        "matcher": "permission_prompt|elicitation_dialog"
+        "matcher": "permission_prompt|elicitation_dialog|agent_needs_input"
       },
       {
         "hooks": [

@@ -84,10 +84,11 @@ An adapter maps the agent's lifecycle events to those six words and calls the
 script. That is the whole contract, see [adapters/README.md](adapters/README.md).
 The Claude Code adapter is a Claude Code plugin (`.claude-plugin/`,
 `hooks/hooks.json`) mapping `SessionStart` to `idle`, `UserPromptSubmit` and
-`PostToolUse` to `working`, `Notification(permission_prompt)` and `StopFailure`
-to `blocked`, `Stop` to `done`, `Notification(idle_prompt)` to `remind`, and
-`SessionEnd` to `clear`. It lives at the repo root because the plugin format
-requires it there.
+`PostToolUse` to `working`, `PermissionRequest`, `PreToolUse(AskUserQuestion)`,
+`Notification(permission_prompt|elicitation_dialog|agent_needs_input)` and
+`StopFailure` to `blocked`, `Stop` to `done`, `Notification(idle_prompt)` to
+`remind`, and `SessionEnd` to `clear`. It lives at the repo root because the
+plugin format requires it there.
 
 If an adapter runs before the tmux plugin has (or you skipped step 1), the
 script performs setup itself on first call. Nothing breaks, you just didn't
@@ -148,6 +149,8 @@ in the window, space separated. Build on that.
 - If an agent finishes while you're already in that window, the tab shows ✓
   until you switch away and back, or type. Intentional.
 - `blocked` is only as precise as the agent's own permission event.
+- Denying a permission fires no event, so a pane stays `blocked` until the
+  agent's next tool call or the end of its turn.
 
 ## Testing
 
