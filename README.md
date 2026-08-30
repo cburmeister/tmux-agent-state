@@ -114,7 +114,7 @@ Global options in `.tmux.conf`, read at setup.
 set -g @agent_state_marker '#{?#{m:*blocked*,#{P:#{@agent_state} }},#[fg=red bold] !,#{?#{m:*working*,#{P:#{@agent_state} }},#[fg=yellow] ~,#{?#{m:*done*,#{P:#{@agent_state} }},#[fg=green] ✓,}}}'
 
 # Process names that count as "an agent is running in this pane". Default shown.
-set -g @agent_state_processes 'claude|node|codex|gemini|opencode|pi'
+set -g @agent_state_processes 'claude|node|bun|codex|gemini|opencode|pi'
 
 # How much of the tab takes the state colour. Default "attention": the whole tab goes red
 # when blocked, other states show only the glyph. "colour": whole tab for every state.

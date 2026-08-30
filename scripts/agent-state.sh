@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # tmux-agent-state: agent state on tmux window tabs, driven by the agent's own lifecycle events.
 #
 # Usage (called by an adapter, e.g. hooks/hooks.json for Claude Code; one argument):
@@ -28,14 +28,14 @@ state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
 case "$state" in setup|ack|jump) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
 
-TMUX_BIN=$(command -v tmux || echo /opt/homebrew/bin/tmux); [ -x "$TMUX_BIN" ] || exit 0
+TMUX_BIN=$(command -v tmux || command -v /opt/homebrew/bin/tmux || command -v /usr/local/bin/tmux); [ -x "$TMUX_BIN" ] || exit 0   # hooks may run with a minimal PATH
 t() { "$TMUX_BIN" "$@" 2>/dev/null; }
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 # ---- render config (runtime only, idempotent) -------------------------------
 # Overridable via global options in .tmux.conf:
 #   set -g @agent_state_marker    '...'      the tab suffix (default below; must mention @agent_state)
-#   set -g @agent_state_processes 'claude|node|codex|gemini|opencode|pi'   what counts as an agent pane
+#   set -g @agent_state_processes 'claude|node|bun|codex|gemini|opencode|pi'   what counts as an agent pane
 #   set -g @agent_state_tabs      attention  whole tab red when blocked, glyph only otherwise (default)
 #                                 colour     whole tab coloured for every state
 #                                 marker     glyph only
@@ -45,7 +45,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 #   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (defaults: fg=red, fg=yellow, fg=green)
 #   set -g @agent_state_border_working 'fg=#f9e2af'
 #   set -g @agent_state_border_done    'fg=#a6e3a1'
-DEFAULT_PROCESSES='claude|node|codex|gemini|opencode|pi'
+DEFAULT_PROCESSES='claude|node|bun|codex|gemini|opencode|pi'
 PANES='#{P:#{@agent_state} }'   # every pane's state in this window, space separated
 DEFAULT_MARKER="#{?#{m:*blocked*,$PANES},#[fg=red bold] !,#{?#{m:*working*,$PANES},#[fg=yellow] ~,#{?#{m:*done*,$PANES},#[fg=green] ✓,}}}"
 # The 0.2.x marker read a *window* option; strip it on upgrade so tabs keep working without a tmux restart.
@@ -58,7 +58,7 @@ ensure_tmux() {
   local marker procs opt cur rest n idx line
   marker=$(t show -gv @agent_state_marker); marker=${marker:-$DEFAULT_MARKER}
   procs=$(t show -gv @agent_state_processes); procs=${procs:-$DEFAULT_PROCESSES}
-  case "${procs//|/}" in *[!A-Za-z0-9_.-]*) procs=$DEFAULT_PROCESSES ;; esac   # spliced into commands: process names and | only
+  case "${procs//|/}" in *[!A-Za-z0-9_-]*) procs=$DEFAULT_PROCESSES ;; esac   # spliced into a regex: process names and | only
   # Publish our location and version for adapters. The tmux plugin's copy (setup) is
   # canonical. Any other copy (bundled inside an adapter) takes over only if nothing is
   # published, the published path is gone, or it is a newer version, so a plugin update
@@ -133,7 +133,7 @@ case "$state" in ack|jump) ;; *) ensure_tmux ;; esac   # hook- and key-driven mo
 if [ "$state" = jump ]; then   # bind in .tmux.conf: bind b run-shell '"$(tmux show -gv @agent_state_script)" jump'
   for want in blocked 'done'; do
     w=$(t list-panes -a -F '#{window_id} #{@agent_state}' | awk -v s="$want" '$2==s{print $1; exit}')
-    [ -n "$w" ] && { t select-window -t "$w"; exit 0; }
+    [ -n "$w" ] && { t switch-client -t "$w" || t select-window -t "$w"; exit 0; }   # switch-client also crosses sessions; no client (tests) falls back
   done
   t display-message 'no agent needs you'; exit 0
 fi

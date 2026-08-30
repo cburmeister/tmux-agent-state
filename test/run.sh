@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Tests against an isolated tmux server (stock config). Never touches your real tmux.
 # Usage: test/run.sh            (add INTEGRATION=1 to also run a real `claude -p` with --plugin-dir)
 # Needs: bash, tmux >= 3.2. No agent binaries.
@@ -99,6 +99,11 @@ run clear; runp "$D1" clear; runp "$D2" clear
 runp "$D2" 'done'; run blocked; visit t:0; "$H" jump; chk jump-prefers-blocked "$(T display -p '#W')" agent
 run clear; visit t:0; "$H" jump;                     chk jump-falls-back-to-done "$(T display -p '#W')" duo
 runp "$D2" clear; visit t:0; "$H" jump;              chk jump-stays-when-nothing "$(T display -p '#I')" 0
+# a blocked pane in another session: the attached client (control mode here) is switched there
+T new-session -d -s other 'sleep 900'; O=$(T list-panes -t other -F '#{pane_id}')
+(sleep 30 | T -C attach -t t >/dev/null 2>&1) & CLIENT=$!; sleep 0.3
+runp "$O" blocked; "$H" jump;                        chk jump-crosses-sessions "$(T list-clients -F '#{client_session}')" other
+T switch-client -t t:0; runp "$O" clear; kill $CLIENT 2>/dev/null; T detach-client -a 2>/dev/null; T kill-session -t other
 
 # --- options -----------------------------------------------------------------
 T set -g @agent_state_borders off; run blocked; chk borders-off "$(st "$A")/$(bd "$A")" "blocked/"; T set -gu @agent_state_borders; run clear
@@ -132,7 +137,7 @@ out=$( ($H ack %9999; echo "rc=$?") 2>&1 );                                 chk 
 # --- tmux plugin entry point on a bare server -------------------------------
 fresh; T set -g window-status-format '#I:#W'
 T set -g @agent_state_processes "claude|sleep'; kill-server; '"; ./agent-state.tmux
-chk bad-processes-falls-back "$(T show -gv @agent_state_processes_active)" "claude|node|codex|gemini|opencode|pi"
+chk bad-processes-falls-back "$(T show -gv @agent_state_processes_active)" "claude|node|bun|codex|gemini|opencode|pi"
 fresh; ./agent-state.tmux
 chk tpm-setup-configures "$(hooks | grep -c agent-state.sh)/$(count window-status-format)/$(T show -gv @agent_state_script)" "1/1/$H"
 T set -p -t "$A" @agent_state working; visit t:agent;  chk custom-process-kept "$(st "$A")" working   # sleep is in the list
