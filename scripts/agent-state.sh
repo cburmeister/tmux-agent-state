@@ -51,13 +51,33 @@ DEFAULT_MARKER="#{?#{m:*blocked*,$PANES},#[fg=red bold] !,#{?#{m:*working*,$PANE
 # The 0.2.x marker read a *window* option; strip it on upgrade so tabs keep working without a tmux restart.
 OLD_MARKER='#{?#{==:#{@agent_state},blocked},#[fg=red bold] !,}#{?#{==:#{@agent_state},working},#[fg=yellow] ~,}#{?#{==:#{@agent_state},done},#[fg=green] ✓,}'
 
+# ---- reads: three tmux round-trips, not one per option ------------------------
+# This runs on every agent event (each tool call), so tmux processes per call are what cost;
+# test/run.sh pins the count. A format resolves an option name to its raw value (empty when
+# unset), so one display-message reads everything except the two status formats: those are read
+# with show -gv because a format would return a window/session-scoped value, or an expanded
+# one before the first session exists, and we edit the global option only.
+US=$'\037'
+read_opts() {
+  local o f='' out
+  for o in version @agent_state_marker @agent_state_processes @agent_state_processes_active @agent_state_script @agent_state_version \
+           @agent_state_tabs @agent_state_tab_prefix @agent_state_bell @agent_state_remind @agent_state_borders @agent_state_borders_supported \
+           @agent_state_border_blocked @agent_state_border_working @agent_state_border_done pane_tty @agent_state; do f="$f#{$o}$US"; done
+  # shellcheck disable=SC2086  # ${TMUX_PANE:+-t "$TMUX_PANE"} expands to two words on purpose
+  out=$(t display -p ${TMUX_PANE:+-t "$TMUX_PANE"} "$f") || return 1
+  IFS=$US read -r o_tmux_version o_marker o_procs o_procs_active o_script o_version o_tabs o_tab_prefix o_bell o_remind o_borders o_borders_supported \
+    o_border_blocked o_border_working o_border_done o_tty o_state <<< "$out"
+  o_wsf=$(t show -gv window-status-format); o_wscf=$(t show -gv window-status-current-format)
+}
+read_opts || exit 0
+
 ensure_tmux() {
   # Needs tmux >= 3.2 (pane options, regex format match, hook arrays). Older: state is still set, just not drawn.
-  local v maj min; v=$(t -V | sed 's/[^0-9.]//g'); maj=${v%%.*}; min=${v#*.}; min=${min%%.*}
+  local v maj min; v=${o_tmux_version//[!0-9.]/}; maj=${v%%.*}; min=${v#*.}; min=${min%%.*}
   [ "${maj:-0}" -gt 3 ] 2>/dev/null || { [ "${maj:-0}" -eq 3 ] && [ "${min:-0}" -ge 2 ]; } 2>/dev/null || return 0
   local marker procs opt cur rest n idx line
-  marker=$(t show -gv @agent_state_marker); marker=${marker:-$DEFAULT_MARKER}
-  procs=$(t show -gv @agent_state_processes); procs=${procs:-$DEFAULT_PROCESSES}
+  marker=${o_marker:-$DEFAULT_MARKER}
+  procs=${o_procs:-$DEFAULT_PROCESSES}
   case "${procs//|/}" in *[!A-Za-z0-9_-]*) procs=$DEFAULT_PROCESSES ;; esac   # spliced into a regex: process names and | only
   # Publish our location and version for adapters. The tmux plugin's copy (setup) is
   # canonical. Any other copy (bundled inside an adapter) takes over only if nothing is
@@ -69,22 +89,21 @@ ensure_tmux() {
     [ -x "$1" ] || return 0
     [ "$(printf '%s\n%s\n' "$2" "$VERSION" | sort -V | tail -1)" = "$VERSION" ] && [ "$2" != "$VERSION" ]
   }
-  local published pubver; published=$(t show -gv @agent_state_script); pubver=$(t show -gv @agent_state_version)
+  local published=$o_script pubver=$o_version
   if [ -z "$published" ] || supersedes "$published" "$pubver"; then
     t set -g @agent_state_script "$SELF"; t set -g @agent_state_version "$VERSION"
   fi
   # Optional: colour the whole tab by state. A style prefix is prepended to the formats; the
   # prefix in use is remembered so a changed or disabled option can remove it cleanly.
   local want_prefix="" had_prefix tabs sb sw sd
-  tabs=$(t show -gv @agent_state_tabs); tabs=${tabs:-attention}
-  sb=$(t show -gv @agent_state_border_blocked); sw=$(t show -gv @agent_state_border_working); sd=$(t show -gv @agent_state_border_done)
+  tabs=${o_tabs:-attention}; sb=$o_border_blocked; sw=$o_border_working; sd=$o_border_done
   case "$tabs" in
     colour)    want_prefix="#{?#{m:*blocked*,$PANES},#[${sb:-fg=red} bold],#{?#{m:*working*,$PANES},#[${sw:-fg=yellow}],#{?#{m:*done*,$PANES},#[${sd:-fg=green}],}}}" ;;
     attention) want_prefix="#{?#{m:*blocked*,$PANES},#[${sb:-fg=red} bold],}" ;;
   esac
-  had_prefix=$(t show -gv @agent_state_tab_prefix)
+  had_prefix=$o_tab_prefix
   for opt in window-status-format window-status-current-format; do
-    cur=$(t show -gv "$opt"); body=${cur//"$OLD_MARKER"/}
+    case "$opt" in window-status-format) cur=$o_wsf ;; *) cur=$o_wscf ;; esac; body=${cur//"$OLD_MARKER"/}
     [ -n "$had_prefix" ] && body=${body#"$had_prefix"}
     [ -n "$want_prefix" ] && body=${body#"$want_prefix"}
     rest=${body//"$marker"/}; n=$(( (${#body} - ${#rest}) / ${#marker} ))
@@ -109,11 +128,11 @@ ensure_tmux() {
     esac
   done <<< "$(t show-hooks -g session-window-changed | sort -t'[' -k2 -rn)"
   [ "$seen" -ge 1 ] || t set-hook -ag session-window-changed "run-shell -b \"'$SELF' ack '#{window_id}'\""
-  t set -g @agent_state_processes_active "$procs"   # what ack matches against
+  [ "$o_procs_active" = "$procs" ] || t set -g @agent_state_processes_active "$procs"   # what ack matches against
   # Per-pane border colours need pane-border-style to be a *pane* option. On older tmux it is
   # a window option and set -p would recolour every pane in the window, so probe once: set it on
   # one pane, see whether the window-level value moved, and put things back.
-  if [ -z "$(t show -gv @agent_state_borders_supported)" ]; then
+  if [ -z "$o_borders_supported" ]; then
     local probe before after ok=0
     probe=${TMUX_PANE:-$(t list-panes -a -F '#{pane_id}' | head -1)}
     if [ -n "$probe" ]; then
@@ -124,7 +143,7 @@ ensure_tmux() {
       elif [ -n "$before" ]; then t set -w -t "$probe" pane-border-style "$before"
       else t set -wu -t "$probe" pane-border-style
       fi
-      t set -g @agent_state_borders_supported "$ok"
+      t set -g @agent_state_borders_supported "$ok"; o_borders_supported=$ok
     fi
   fi
 }
@@ -140,26 +159,24 @@ fi
 
 # ---- per-pane rendering -----------------------------------------------------
 border() {   # border <pane> <state|"">
-  [ "$(t show -gv @agent_state_borders)" = off ] && return 0
-  [ "$(t show -gv @agent_state_borders_supported)" = 1 ] || return 0
-  local style
+  [ "$o_borders" = off ] && return 0
+  [ "$o_borders_supported" = 1 ] || return 0
   case "$2" in
-    blocked) style=$(t show -gv @agent_state_border_blocked); t set -p -t "$1" pane-border-style "${style:-fg=red}" ;;
-    working) style=$(t show -gv @agent_state_border_working); t set -p -t "$1" pane-border-style "${style:-fg=yellow}" ;;
-    done)    style=$(t show -gv @agent_state_border_done);    t set -p -t "$1" pane-border-style "${style:-fg=green}" ;;
+    blocked) t set -p -t "$1" pane-border-style "${o_border_blocked:-fg=red}" ;;
+    working) t set -p -t "$1" pane-border-style "${o_border_working:-fg=yellow}" ;;
+    done)    t set -p -t "$1" pane-border-style "${o_border_done:-fg=green}" ;;
     *)       t set -pu -t "$1" pane-border-style ;;
   esac
 }
-bell() {
-  [ "$(t show -gv @agent_state_bell)" = off ] && return 0
-  local tty; tty=$(t display-message -p -t "$TMUX_PANE" '#{pane_tty}') || return 0
-  [ -n "$tty" ] && [ -w "$tty" ] && printf '\a' > "$tty" 2>/dev/null; return 0
+bell() {   # ring this pane's terminal bell: written to its tty so tmux's own bell handling sees it
+  [ "$o_bell" = off ] && return 0
+  [ -n "$o_tty" ] && [ -w "$o_tty" ] && printf '\a' > "$o_tty" 2>/dev/null; return 0
 }
 
 # ---- state ------------------------------------------------------------------
 case "$state" in
   ack)   # visiting a window: panes not running an agent lose their state; done -> idle
-    procs=$(t show -gv @agent_state_processes_active); procs=${procs:-$DEFAULT_PROCESSES}
+    procs=${o_procs_active:-$DEFAULT_PROCESSES}
     while read -r pane st cmd; do
       [ -n "$st" ] || continue
       if ! [[ "$cmd" =~ ^($procs)$ ]]; then t set -pu -t "$pane" @agent_state; border "$pane" ""
@@ -168,8 +185,7 @@ case "$state" in
     done <<< "$(t list-panes -t "$2" -F '#{pane_id} #{@agent_state} #{pane_current_command}')" ;;
   clear)  t set -pu -t "$TMUX_PANE" @agent_state; border "$TMUX_PANE" "" ;;
   remind)   # the agent has sat idle a while: re-ring only for states worth a second bell
-    rm=$(t show -gv @agent_state_remind); rm=${rm:-blocked}
-    case "$rm:$(t show -pv -t "$TMUX_PANE" @agent_state)" in blocked:blocked|done:blocked|done:done) bell ;; esac ;;
+    case "${o_remind:-blocked}:$o_state" in blocked:blocked|done:blocked|done:done) bell ;; esac ;;
   idle)   t set -p -t "$TMUX_PANE" @agent_state idle; border "$TMUX_PANE" "" ;;
   working|blocked|done)
     t set -p -t "$TMUX_PANE" @agent_state "$state"; border "$TMUX_PANE" "$state"

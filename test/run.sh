@@ -3,6 +3,7 @@
 # Usage: test/run.sh            (add INTEGRATION=1 to also run a real `claude -p` with --plugin-dir)
 # Needs: bash, tmux >= 3.2. No agent binaries.
 cd "$(dirname "$0")/.." || exit 1
+unset TMUX_PANE   # the developer's own pane must not leak into calls that set no pane (setup, jump)
 H=$PWD/scripts/agent-state.sh; L=agtest-$$
 T() { tmux -L "$L" "$@"; }
 cleanup() { T kill-server 2>/dev/null; }; trap cleanup EXIT
@@ -126,6 +127,11 @@ chk tabs-colour-restyled "$(tab t:agent | grep -o 'f9e2af' | wc -l | tr -d ' ')"
 T set -g @agent_state_tabs marker; run working
 chk tabs-colour-removed "$(T show -gv window-status-format | cut -c1-5)/$(T show -gv @agent_state_tab_prefix 2>/dev/null)" "#I:#W/"; T set -gu @agent_state_tabs; run clear
 
+# --- hot path: tmux processes per steady-state event (every tool call pays this) ---------
+SHIM=$(mktemp -d); printf '#!/usr/bin/env bash\necho x >> "%s/n"\nexec "%s" "$@"\n' "$SHIM" "$(command -v tmux)" > "$SHIM/tmux"; chmod +x "$SHIM/tmux"
+run working; : > "$SHIM/n"; PATH="$SHIM:$PATH" run working; n=$(wc -l < "$SHIM/n" | tr -d ' ')
+chk spawns-per-event "$([ "$n" -le 6 ] && echo ok || echo "$n > 6")" ok; rm -rf "$SHIM"
+
 # --- failure paths: exit 0, no output ---------------------------------------
 out=$( (unset TMUX_PANE; $H blocked; echo "rc=$?") 2>&1 );                 chk outside-tmux-silent "$out" "rc=0"
 out=$( (TMUX_PANE=%9999 $H blocked; echo "rc=$?") 2>&1 );                   chk bogus-pane-silent "$out" "rc=0"
@@ -138,6 +144,10 @@ out=$( ($H ack %9999; echo "rc=$?") 2>&1 );                                 chk 
 fresh; T set -g window-status-format '#I:#W'
 T set -g @agent_state_processes "claude|sleep'; kill-server; '"; ./agent-state.tmux
 chk bad-processes-falls-back "$(T show -gv @agent_state_processes_active)" "claude|node|bun|codex|gemini|opencode|pi"
+# setup at config-load time, how tpack/TPM run it: a run-shell in the config, before any pane exists
+T kill-server 2>/dev/null; sleep 0.2; CONF=$(mktemp); printf 'set -g window-status-format "#I:#W"\nrun-shell "%s/agent-state.tmux"\n' "$PWD" > "$CONF"
+(unset TMUX; T -f "$CONF" new-session -d -s t 'sleep 900'); sleep 0.5; rm -f "$CONF"
+chk setup-from-config "$(count window-status-format)/$(T show -gv window-status-format | grep -c '^#{?#{m:\*blocked\*.*#I:#W')/$(hooks | grep -c agent-state.sh)/$(T show -gv @agent_state_script)" "1/1/1/$H"
 fresh; ./agent-state.tmux
 chk tpm-setup-configures "$(hooks | grep -c agent-state.sh)/$(count window-status-format)/$(T show -gv @agent_state_script)" "1/1/$H"
 T set -p -t "$A" @agent_state working; visit t:agent;  chk custom-process-kept "$(st "$A")" working   # sleep is in the list
