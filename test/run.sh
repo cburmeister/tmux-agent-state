@@ -81,6 +81,34 @@ T set -g @agent_state_remind off
 silently blocked; run remind; sleep 0.2;                 chk remind-off "$(flag)" 0
 T set -gu @agent_state_remind; run idle; unflag
 
+# --- notify: the user's own command, fired on transitions only ---------------
+NF=$(mktemp); nlines() { wc -l < "$NF" | tr -d ' '; }
+# shellcheck disable=SC2016  # the $AGENT_* vars must reach tmux unexpanded; the notify command's own sh expands them
+T set -g @agent_state_notify 'printf "%s|%s|%s|%s\n" "$AGENT_STATE" "$AGENT_STATE_PREV" "$AGENT_STATE_PANE" "#{window_name}" >> '"$NF"
+run idle; : > "$NF"
+run blocked; waitfor 1 nlines;         chk notify-blocked "$(cat "$NF")" "blocked|idle|$A|agent"   # env vars, and a tmux format, arrive
+run blocked; sleep 0.3;                chk notify-silent-on-blocked-retry "$(nlines)" 1
+run working; run working; sleep 0.3;   chk notify-silent-on-working "$(nlines)" 1   # not a notifying state, and the second is no change
+run 'done'; waitfor 2 nlines;          chk notify-done "$(tail -1 "$NF")" "done|working|$A|agent"
+run clear; : > "$NF"; run blocked; waitfor 1 nlines
+chk notify-prev-empty-when-none "$(cat "$NF")" "blocked||$A|agent"
+T set -g @agent_state_notify_states blocked
+run idle; : > "$NF"; run 'done'; sleep 0.3;  chk notify-states-drops-done "$(nlines)" 0
+run blocked; waitfor 1 nlines;               chk notify-states-keeps-blocked "$(nlines)" 1
+T set -g @agent_state_notify_states off
+run idle; : > "$NF"; run blocked; run 'done'; sleep 0.3
+chk notify-states-off "$(nlines)" 0
+T set -gu @agent_state_notify_states
+# a notifier that hangs must not delay the agent: the command starts, the script returns anyway
+T set -g @agent_state_notify "printf 'slow\n' >> $NF; sleep 5"
+run idle; : > "$NF"; S0=$(date +%s); run blocked; S1=$(date +%s)
+chk notify-does-not-block "$([ $((S1-S0)) -le 2 ] && echo ok || echo "$((S1-S0))s")" ok
+waitfor 1 nlines;                      chk notify-slow-command-still-ran "$(cat "$NF")" slow
+T set -gu @agent_state_notify
+run idle; : > "$NF"; run blocked; run 'done'; sleep 0.3
+chk notify-unset-fires-nothing "$(nlines)" 0
+rm -f "$NF"; run idle; unflag
+
 # --- two agents in one window: tab shows the worst pane ---------------------
 runp "$D1" blocked; runp "$D2" 'done'; chk duo-blocked+done "$(tab t:duo)" "3:duo#[fg=red bold] !"
 runp "$D1" working;                    chk duo-working+done "$(tab t:duo)" "3:duo#[fg=yellow] ~"

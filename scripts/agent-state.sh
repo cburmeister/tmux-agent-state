@@ -41,6 +41,8 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 #                                 marker     glyph only
 #   set -g @agent_state_bell      off        never ring the terminal bell (tabs and borders still update)
 #   set -g @agent_state_remind    done       what an idle reminder re-rings for: blocked (default), done, or off
+#   set -g @agent_state_notify    'cmd'      shell command run when a pane *enters* a notifying state (unset: nothing)
+#   set -g @agent_state_notify_states 'blocked'   which states fire it: any of working/blocked/done, or off (default: blocked done)
 #   set -g @agent_state_borders   off        don't colour pane borders by state
 #   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (defaults: fg=red, fg=yellow, fg=green)
 #   set -g @agent_state_border_working 'fg=#f9e2af'
@@ -62,11 +64,12 @@ read_opts() {
   local o f='' out
   for o in version @agent_state_marker @agent_state_processes @agent_state_processes_active @agent_state_script @agent_state_version \
            @agent_state_tabs @agent_state_tab_prefix @agent_state_bell @agent_state_remind @agent_state_borders @agent_state_borders_supported \
-           @agent_state_border_blocked @agent_state_border_working @agent_state_border_done pane_tty @agent_state; do f="$f#{$o}$US"; done
+           @agent_state_border_blocked @agent_state_border_working @agent_state_border_done pane_tty @agent_state \
+           @agent_state_notify @agent_state_notify_states; do f="$f#{$o}$US"; done
   # shellcheck disable=SC2086  # ${TMUX_PANE:+-t "$TMUX_PANE"} expands to two words on purpose
   out=$(t display -p ${TMUX_PANE:+-t "$TMUX_PANE"} "$f") || return 1
   IFS=$US read -r o_tmux_version o_marker o_procs o_procs_active o_script o_version o_tabs o_tab_prefix o_bell o_remind o_borders o_borders_supported \
-    o_border_blocked o_border_working o_border_done o_tty o_state <<< "$out"
+    o_border_blocked o_border_working o_border_done o_tty o_state o_notify o_notify_states <<< "$out"   # notify last: one read stops at a newline, so a multi-line command truncates only itself
   o_wsf=$(t show -gv window-status-format); o_wscf=$(t show -gv window-status-current-format)
 }
 read_opts || exit 0
@@ -172,6 +175,24 @@ bell() {   # ring this pane's terminal bell: written to its tty so tmux's own be
   [ "$o_bell" = off ] && return 0
   [ -n "$o_tty" ] && [ -w "$o_tty" ] && printf '\a' > "$o_tty" 2>/dev/null; return 0
 }
+notify() {   # notify <new state>: hand the user's own command a state *transition*
+  # Costs nothing when @agent_state_notify is unset: both options ride the batched read, and
+  # o_state is the pane's previous state, so working -> working (every tool call) never gets here.
+  # run-shell -b backgrounds the command in the tmux server (a notifier that hangs can't delay the
+  # agent) and expands formats in it, so #{window_name} and friends work. It does *not* inherit our
+  # environment, though, so the vars are prepended as assignments to the sh the server runs the
+  # command with -- set *and* exported, so both "$AGENT_STATE" in the command and a child reading
+  # the environment see them. A plain assignment prefix would only reach the child.
+  [ -n "$o_notify" ] || return 0
+  local states=${o_notify_states:-blocked done} prev=${o_state//[!a-z]/}
+  [ "$states" = off ] && return 0
+  [ "$1" != "$prev" ] || return 0
+  case " $states " in *" $1 "*) ;; *) return 0 ;; esac
+  t run-shell -b -t "$TMUX_PANE" "AGENT_STATE=$1 AGENT_STATE_PREV=$prev AGENT_STATE_PANE=$TMUX_PANE
+export AGENT_STATE AGENT_STATE_PREV AGENT_STATE_PANE
+$o_notify"
+  return 0
+}
 
 # ---- state ------------------------------------------------------------------
 case "$state" in
@@ -189,6 +210,7 @@ case "$state" in
   idle)   t set -p -t "$TMUX_PANE" @agent_state idle; border "$TMUX_PANE" "" ;;
   working|blocked|done)
     t set -p -t "$TMUX_PANE" @agent_state "$state"; border "$TMUX_PANE" "$state"
-    case "$state" in blocked|done) bell ;; esac ;;
+    case "$state" in blocked|done) bell ;; esac
+    notify "$state" ;;
 esac
 exit 0

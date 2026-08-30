@@ -14,7 +14,9 @@ Every window running an agent gets a marker on its tab:
 
 `blocked` and `done` also ring the pane's bell, so your terminal's bell handling
 (badge, notification, tmux `monitor-bell`) keeps working. Looking at a `done`
-window acknowledges it, the same way tmux clears a bell flag.
+window acknowledges it, the same way tmux clears a bell flag. Want a desktop
+notification too? Plug in your own notifier with `@agent_state_notify`, see
+[Options](#options).
 
 State comes from the agent's own lifecycle events, not from reading the screen.
 `blocked` fires on the actual permission prompt.
@@ -128,6 +130,15 @@ set -g @agent_state_bell off
 # Default "blocked": a stalled agent gets a second bell; a finished one is already green.
 set -g @agent_state_remind done   # or off
 
+# Run your own command when a pane enters a state. Unset by default. The plugin ships no
+# notifier, you plug in the one you already have. Three that work as written:
+set -g @agent_state_notify 'terminal-notifier -title "#{session_name}:#{window_name}" -message "agent is $AGENT_STATE"'    # macOS
+set -g @agent_state_notify 'osascript -e "display notification \"agent is $AGENT_STATE\" with title \"#{window_name}\""'   # macOS, nothing to install
+set -g @agent_state_notify 'notify-send "#{session_name}:#{window_name}" "agent is $AGENT_STATE"'                          # Linux
+
+# Which states fire it. Default shown; space separated, any of working/blocked/done, or off.
+set -g @agent_state_notify_states 'blocked done'
+
 # Colour pane borders by state. Default on where tmux supports per-pane border
 # styles (probed at setup; older tmux gets the tabs only).
 set -g @agent_state_borders off
@@ -137,6 +148,25 @@ set -g @agent_state_border_blocked 'fg=red'
 set -g @agent_state_border_working 'fg=yellow'
 set -g @agent_state_border_done    'fg=green'
 ```
+
+`@agent_state_notify` fires on the *transition* into a state, not on every event.
+A turn's worth of tool calls is `working -> working` and stays silent; a retried
+permission prompt is `blocked -> blocked` and stays silent too. The command runs
+under `sh`, backgrounded by tmux, so a notifier that hangs for ten seconds never
+delays the agent. It gets:
+
+| | |
+|---|---|
+| `$AGENT_STATE` | the state just entered |
+| `$AGENT_STATE_PREV` | the state it came from, empty if the pane had none |
+| `$AGENT_STATE_PANE` | the pane id, e.g. `%7` |
+| `#{...}` | any tmux format, resolved against that pane: `#{window_name}`, `#{session_name}`, `#{pane_current_path}`, ... |
+
+The bell and the notify command are independent: you can have the bell only (the
+default), a notifier only (`@agent_state_bell off`), both, or neither. Over SSH,
+prefer the bell. The notify command runs on the machine tmux runs on, so a
+desktop notifier there pops up on the *remote* machine; the bell travels down the
+connection to your own terminal.
 
 If your `window-status-format` already contains `@agent_state` (you hand-wired
 it), the formats are left alone. `#{P:#{@agent_state} }` is every pane's state
