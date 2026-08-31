@@ -258,7 +258,7 @@ permission prompt is `blocked -> blocked` and stays silent too. tmux runs the
 command under `sh`, in the background, so a notifier that hangs can never
 delay the agent. The command gets:
 
-| | |
+| Placeholder | Meaning |
 |---|---|
 | `$AGENT_STATE` | the state just entered |
 | `$AGENT_STATE_PREV` | the state it came from, empty if the pane had none |
@@ -283,7 +283,15 @@ connection to your terminal.
 | Option | Default | What it does |
 |---|---|---|
 | `@agent_state_key` | `a` | The prefix key bound to triage. `off` binds nothing. |
-| `@agent_state_processes` | `claude\|node\|bun\|codex\|gemini\|opencode\|pi\|qwen\|copilot\|goose\|amp` | The process names that count as "an agent runs in this pane". Add yours if the ack drops your agent's state on visit. |
+
+`@agent_state_processes` is the process names that count as "an agent runs in
+this pane". The default:
+
+```
+claude|node|bun|codex|gemini|opencode|pi|qwen|copilot|goose|amp
+```
+
+Add yours if the ack drops your agent's state on visit.
 
 ## Doctor
 
