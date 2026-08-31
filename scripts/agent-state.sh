@@ -6,7 +6,9 @@
 #   remind                            re-ring the bell if still blocked/done
 #   clear                             remove the state (session ended)
 #   setup                             configure tmux only (used by the tmux plugin entry point)
-#   jump                              select the first window with a blocked pane, else a done one
+#   pick                              go to the agent that most needs you (blocked, else done; oldest first)
+#   jump                              deprecated alias kept for 0.3.x configs: straight to the first
+#                                     blocked pane, else the first done one, no UI
 #   ack <window_id>                   internal: run by the tmux hook when the current window changes
 #
 # This script is the whole interface between tmux and any agent. Adapters for
@@ -23,10 +25,10 @@
 #
 # Only meaningful inside tmux. Always exits 0 and prints nothing, so a broken
 # indicator can never block an agent.
-VERSION=0.3.2   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
+VERSION=0.5.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
 state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
-case "$state" in setup|ack|jump) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
+case "$state" in setup|ack|jump|pick|_rows) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
 
 TMUX_BIN=$(command -v tmux || command -v /opt/homebrew/bin/tmux || command -v /usr/local/bin/tmux); [ -x "$TMUX_BIN" ] || exit 0   # hooks may run with a minimal PATH
 t() { "$TMUX_BIN" "$@" 2>/dev/null; }
@@ -43,6 +45,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 #   set -g @agent_state_remind    done       what an idle reminder re-rings for: blocked (default), done, or off
 #   set -g @agent_state_notify    'cmd'      shell command run when a pane *enters* a notifying state (unset: nothing)
 #   set -g @agent_state_notify_states 'blocked'   which states fire it: any of working/blocked/done, or off (default: blocked done)
+#   set -g @agent_state_key       b          prefix key bound to pick at setup (default a; off binds nothing)
 #   set -g @agent_state_borders   off        don't colour pane borders by state
 #   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (defaults: fg=red, fg=yellow, fg=green)
 #   set -g @agent_state_border_working 'fg=#f9e2af'
@@ -150,14 +153,53 @@ ensure_tmux() {
     fi
   fi
 }
-case "$state" in ack|jump) ;; *) ensure_tmux ;; esac   # hook- and key-driven modes must never (re)configure
-[ "$state" = setup ] && exit 0
+case "$state" in ack|jump|pick|_rows) ;; *) ensure_tmux ;; esac   # hook- and key-driven modes must never (re)configure
+if [ "$state" = setup ]; then
+  # Ship the keybinding rather than only documenting it: every comparable plugin binds a key at
+  # install time, and a plugin you have to hand-wire before it does anything is friction, not
+  # minimalism. Only here in setup, which runs once at tmux start, so the hot path never pays for it.
+  key=$(t show -gv @agent_state_key); key=${key:-a}
+  [ "$key" = off ] || t bind-key "$key" run-shell "'$SELF' pick"
+  exit 0
+fi
 if [ "$state" = jump ]; then   # bind in .tmux.conf: bind b run-shell '"$(tmux show -gv @agent_state_script)" jump'
   for want in blocked 'done'; do
     w=$(t list-panes -a -F '#{window_id} #{@agent_state}' | awk -v s="$want" '$2==s{print $1; exit}')
     [ -n "$w" ] && { t switch-client -t "$w" || t select-window -t "$w"; exit 0; }   # switch-client also crosses sessions; no client (tests) falls back
   done
   t display-message 'no agent needs you'; exit 0
+fi
+
+# ---- pick: triage every agent pane ------------------------------------------
+# UI-only, like jump and ack: never runs ensure_tmux, so a keypress cannot reconfigure anything.
+# bind in .tmux.conf: bind a run-shell '"$(tmux show -gv @agent_state_script)" pick'
+goto_pane() {   # goto_pane <pane_id>: cross-session safe, lands on the agent pane itself
+  local w; w=$(t display -p -t "$1" '#{window_id}'); [ -n "$w" ] || return 0
+  t switch-client -t "$w" || t select-window -t "$w"   # switch-client also crosses sessions; no client (tests) falls back
+  t select-pane -t "$1"; return 0
+}
+
+pick_rows() {   # rank US pane US window US session US windex US wname US state US age -- sorted, filtered
+  # One list-panes call. Filtered to panes that have a state AND run an agent process, using the same
+  # predicate ack uses, so pick and the tabs can never disagree. blocked > done > working > idle,
+  # then longest-waiting first: what needs you, oldest first, then what is ready, then what is busy.
+  local procs=${o_procs_active:-$DEFAULT_PROCESSES} now; now=$(date +%s)
+  t list-panes -a -F "#{pane_id}$US#{window_id}$US#{session_name}$US#{window_index}$US#{window_name}$US#{@agent_state}$US#{@agent_state_since}$US#{pane_current_command}" \
+  | awk -F"$US" -v OFS="$US" -v procs="^($procs)\$" -v now="$now" '
+      $6 != "" && $8 ~ procs {
+        rank = ($6=="blocked") ? 1 : ($6=="done") ? 2 : ($6=="working") ? 3 : 4
+        age  = ($7 ~ /^[0-9]+$/ && $7+0 > 0) ? now - $7 : -1
+        print rank, $1, $2, $3, $4, $5, $6, age
+      }' \
+  | sort -t"$US" -k1,1n -k8,8nr
+}
+if [ "$state" = _rows ]; then pick_rows | tr "$US" ' '; exit 0; fi   # internal: test seam for the row logic
+if [ "$state" = pick ]; then
+  # No UI, ever: go straight to the agent that most needs you. pick_rows already ranks them
+  # blocked before done and longest-waiting first, so the top row is the answer.
+  pane=$(pick_rows | awk -F"$US" '$1 <= 2 {print $2; exit}')
+  [ -n "$pane" ] || { t display-message 'no agent needs you'; exit 0; }
+  goto_pane "$pane"; exit 0
 fi
 
 # ---- per-pane rendering -----------------------------------------------------
@@ -204,12 +246,19 @@ case "$state" in
       elif [ "$st" = 'done' ]; then t set -p -t "$pane" @agent_state idle; border "$pane" ""
       fi
     done <<< "$(t list-panes -t "$2" -F '#{pane_id} #{@agent_state} #{pane_current_command}')" ;;
-  clear)  t set -pu -t "$TMUX_PANE" @agent_state; border "$TMUX_PANE" "" ;;
+  clear)  t set -pu -t "$TMUX_PANE" @agent_state ';' set -pu -t "$TMUX_PANE" @agent_state_since; border "$TMUX_PANE" "" ;;
   remind)   # the agent has sat idle a while: re-ring only for states worth a second bell
     case "${o_remind:-blocked}:$o_state" in blocked:blocked|done:blocked|done:done) bell ;; esac ;;
   idle)   t set -p -t "$TMUX_PANE" @agent_state idle; border "$TMUX_PANE" "" ;;
   working|blocked|done)
-    t set -p -t "$TMUX_PANE" @agent_state "$state"; border "$TMUX_PANE" "$state"
+    # Only on a real transition: steady-state working (every tool call) skips the write and the
+    # border entirely, and @agent_state_since rides the same tmux invocation as @agent_state, so
+    # the timestamp pick needs costs nothing. The bell stays outside: it has always rung on
+    # every blocked/done event, and remind depends on that.
+    if [ "$state" != "${o_state//[!a-z]/}" ]; then
+      t set -p -t "$TMUX_PANE" @agent_state "$state" ';' set -p -t "$TMUX_PANE" @agent_state_since "$(date +%s)"
+      border "$TMUX_PANE" "$state"
+    fi
     case "$state" in blocked|done) bell ;; esac
     notify "$state" ;;
 esac

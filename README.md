@@ -98,14 +98,28 @@ choose when it happened. Updating an adapter takes effect in the running tmux
 server on its next event, a newer copy of the script replaces what an older one
 set up. No reason to restart tmux.
 
-## Jump to whatever needs you
+## Triage: go to whatever needs you
+
+`prefix` + `a` is bound for you at install. It goes straight to the agent that
+most needs you: `blocked` before `done`, and among those, the one waiting
+longest. No menu, no popup, nothing to read. If nothing needs you it says so
+and stays put.
+
+Panes are matched with the same test the tabs use, so the key and the tab bar
+can never disagree, and it crosses sessions.
+
+<details>
+<summary><code>jump</code>, the 0.3.x binding</summary>
+
+`jump` still works, unchanged: straight to the first `blocked` pane, else the
+first `done` one, no UI ever. It is kept so existing configs keep working.
+`pick` supersedes it and behaves identically when only one agent needs you, so
+you can drop the binding below and use `prefix` + `a` instead.
 
 ```tmux
 bind b run-shell '"$(tmux show -gv @agent_state_script)" jump'
 ```
-
-`prefix` + `b` selects the first window with a `blocked` pane, else the first
-with a `done` one, else tells you nothing needs you.
+</details>
 
 ## Options
 
@@ -138,6 +152,9 @@ set -g @agent_state_notify 'notify-send "#{session_name}:#{window_name}" "agent 
 
 # Which states fire it. Default shown; space separated, any of working/blocked/done, or off.
 set -g @agent_state_notify_states 'blocked done'
+
+# The prefix key bound to pick at install. Default "a"; "off" binds nothing.
+set -g @agent_state_key b
 
 # Colour pane borders by state. Default on where tmux supports per-pane border
 # styles (probed at setup; older tmux gets the tabs only).

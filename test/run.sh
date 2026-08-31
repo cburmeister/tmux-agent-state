@@ -109,6 +109,46 @@ run idle; : > "$NF"; run blocked; run 'done'; sleep 0.3
 chk notify-unset-fires-nothing "$(nlines)" 0
 rm -f "$NF"; run idle; unflag
 
+# --- pick: go to the agent that most needs you -------------------------------
+Z=$(T list-panes -t t:0 -F '#{pane_id}')                   # window 0 runs sleep too, so it is a 4th agent pane
+rows() { TMUX_PANE="$A" "$H" _rows; }                      # rank pane window session windex wname state age
+states() { rows | awk '{print $7}' | tr '\n' ' '; }
+since() { T show -pv -t "$1" @agent_state_since 2>/dev/null; }
+run clear; runp "$D1" clear; runp "$D2" clear; runp "$Z" clear
+chk pick-rows-empty "$(rows)" ""
+run blocked
+chk pick-rows-one "$(rows | awk '{print $7, $6}')" "blocked agent"
+# the sleeper pane runs tail, not an agent: a state on it must never reach pick
+T set -p -t "$S" @agent_state blocked
+chk pick-rows-filters-non-agents "$(rows | grep -c "$S")" "0"
+T set -pu -t "$S" @agent_state
+# all four states at once, in priority order: blocked > done > working > idle
+runp "$D1" 'done'; runp "$D2" working; runp "$Z" idle
+chk pick-rows-sort-order "$(states)" "blocked done working idle "
+chk pick-rows-idle-listed-not-dropped "$(rows | grep -c idle)" "1"
+# longest-waiting first within a rank
+runp "$D1" clear; runp "$D2" clear; runp "$Z" clear
+run blocked; T set -p -t "$A" @agent_state_since "$(( $(date +%s) - 300 ))"
+runp "$D1" blocked
+chk pick-rows-oldest-first "$(rows | head -1 | awk '{print $2}')" "$A"
+# @agent_state_since: written on transition, untouched on a repeat, gone on clear
+runp "$D1" clear; run clear; run blocked; SINCE=$(since "$A")
+chk since-written "$([ -n "$SINCE" ] && echo ok)" ok
+run blocked;                       chk since-stable-on-repeat "$(since "$A")" "$SINCE"
+run clear;                         chk since-cleared "$(since "$A")" ""
+# pick goes straight to whoever most needs you: blocked before done, oldest blocked first
+run blocked; visit t:0; "$H" pick;                    chk pick-goes-to-blocked "$(T display -p '#W')" agent
+run clear; runp "$D1" 'done'; visit t:0; "$H" pick;   chk pick-falls-back-to-done "$(T display -p '#W')" duo
+# landing on duo acked D1 (done -> idle), so re-arm both: blocked outranks done, no question asked
+visit t:0; run blocked; runp "$D1" 'done'
+"$H" pick;                                            chk pick-prefers-blocked-of-two "$(T display -p '#W')" agent
+runp "$D1" blocked; T set -p -t "$D1" @agent_state_since "$(( $(date +%s) - 500 ))"
+visit t:0; "$H" pick;                                 chk pick-oldest-blocked-first "$(T display -p '#W')" duo
+# working and idle are not "needs you"
+runp "$D1" clear; runp "$D2" working; runp "$Z" idle
+visit t:0; run blocked; "$H" pick;                    chk pick-ignores-working-and-idle "$(T display -p '#W')" agent
+run clear; runp "$D1" clear; runp "$D2" clear; runp "$Z" clear; run idle; unflag
+
 # --- two agents in one window: tab shows the worst pane ---------------------
 runp "$D1" blocked; runp "$D2" 'done'; chk duo-blocked+done "$(tab t:duo)" "3:duo#[fg=red bold] !"
 runp "$D1" working;                    chk duo-working+done "$(tab t:duo)" "3:duo#[fg=yellow] ~"
@@ -163,7 +203,7 @@ chk tabs-colour-removed "$(T show -gv window-status-format | cut -c1-5)/$(T show
 # --- hot path: tmux processes per steady-state event (every tool call pays this) ---------
 SHIM=$(mktemp -d); printf '#!/usr/bin/env bash\necho x >> "%s/n"\nexec "%s" "$@"\n' "$SHIM" "$(command -v tmux)" > "$SHIM/tmux"; chmod +x "$SHIM/tmux"
 run working; : > "$SHIM/n"; PATH="$SHIM:$PATH" run working; n=$(wc -l < "$SHIM/n" | tr -d ' ')
-chk spawns-per-event "$([ "$n" -le 6 ] && echo ok || echo "$n > 6")" ok; rm -rf "$SHIM"
+chk spawns-per-event "$([ "$n" -le 5 ] && echo ok || echo "$n > 5")" ok; rm -rf "$SHIM"
 
 # --- failure paths: exit 0, no output ---------------------------------------
 out=$( (unset TMUX_PANE; $H blocked; echo "rc=$?") 2>&1 );                 chk outside-tmux-silent "$out" "rc=0"
@@ -184,6 +224,19 @@ chk setup-from-config "$(count window-status-format)/$(T show -gv window-status-
 fresh; ./agent-state.tmux
 chk tpm-setup-configures "$(hooks | grep -c agent-state.sh)/$(count window-status-format)/$(T show -gv @agent_state_script)" "1/1/$H"
 T set -p -t "$A" @agent_state working; visit t:agent;  chk custom-process-kept "$(st "$A")" working   # sleep is in the list
+
+# --- the plugin binds its key at setup, so it works with no config ----------
+bound() { T list-keys -T prefix 2>/dev/null | grep -c "agent-state.sh' pick"; }
+fresh; ./agent-state.tmux
+chk key-bound-by-default "$(bound)" "1"
+chk key-default-is-a "$(T list-keys -T prefix 2>/dev/null | grep "agent-state.sh' pick" | awk '{print $4}')" "a"
+./agent-state.tmux;                       chk key-bound-once "$(bound)" "1"
+T set -g @agent_state_key b; ./agent-state.tmux
+chk key-honours-option "$(T list-keys -T prefix 2>/dev/null | grep "agent-state.sh' pick" | awk '{print $4}' | tr '\n' ' ')" "a b "
+T set -g @agent_state_key off; T unbind a; T unbind b; ./agent-state.tmux
+chk key-off-binds-nothing "$(bound)" "0"
+T set -gu @agent_state_key
+fresh
 
 # --- a plugin update supersedes the hook it left behind, wherever the copies live -------
 chk version-in-step "$(grep -o '^VERSION=[0-9.]*' "$H" | cut -d= -f2)" "$(jq -r .version .claude-plugin/plugin.json)"
