@@ -1,7 +1,7 @@
 # OpenCode adapter
 
 OpenCode loads JavaScript plugins from `~/.config/opencode/plugins/` (global)
-or `.opencode/plugins/` (per project) — see
+or `.opencode/plugins/` (per project); see
 [opencode.ai/docs/plugins](https://opencode.ai/docs/plugins/). The adapter is
 one dependency-free file:
 

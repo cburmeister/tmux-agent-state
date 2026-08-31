@@ -18,8 +18,8 @@ notify = ["sh", "-c", "exec \"$(tmux show -gv @agent_state_script)\" done", "tmu
 
 Nothing to install: the command asks tmux where the tmux plugin published the
 script (step 1 in the top-level README) and calls it. Outside tmux, or with the
-tmux plugin missing, `sh` fails quietly and Codex never notices — the notify
-child's stdio is null.
+tmux plugin missing, `sh` fails quietly and Codex never notices, because the
+notify child's stdio is null.
 
 What you get: the tab turns `✓` (and the bell rings) when Codex finishes a
 turn, and visiting the window acknowledges it. What you don't get: `working`

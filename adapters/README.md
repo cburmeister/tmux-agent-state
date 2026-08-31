@@ -36,14 +36,14 @@ the reasoning behind its mapping.
 
 | Word | Claude Code | [Codex CLI](codex/) | [Gemini CLI](gemini/) | [OpenCode](opencode/) | [pi](pi/) |
 |---|---|---|---|---|---|
-| idle | `SessionStart` | — | `SessionStart` | `session.created` | `session_start` |
-| working | `UserPromptSubmit`, `PostToolUse` | — | `BeforeAgent`, `AfterTool` | `message.updated` (user), `tool.execute.after`, `permission.replied` | `agent_start` |
-| blocked | `PermissionRequest`, `PreToolUse: AskUserQuestion`, `Notification: permission_prompt, elicitation_dialog, agent_needs_input`, `StopFailure` | — (no external event) | `Notification` | `permission.asked`, `session.error` | — (no external event) |
+| idle | `SessionStart` | none | `SessionStart` | `session.created` | `session_start` |
+| working | `UserPromptSubmit`, `PostToolUse` | none | `BeforeAgent`, `AfterTool` | `message.updated` (user), `tool.execute.after`, `permission.replied` | `agent_start` |
+| blocked | `PermissionRequest`, `PreToolUse: AskUserQuestion`, `Notification: permission_prompt, elicitation_dialog, agent_needs_input`, `StopFailure` | none (no external event) | `Notification` | `permission.asked`, `session.error` | none (no external event) |
 | done | `Stop` | `agent-turn-complete` | `AfterAgent` | `session.idle` | `agent_settled` |
-| remind | `Notification: idle_prompt` | — | — | — | — |
-| clear | `SessionEnd` | — | `SessionEnd` | `session.deleted` | `session_shutdown` |
+| remind | `Notification: idle_prompt` | none | none | none | none |
+| clear | `SessionEnd` | none | `SessionEnd` | `session.deleted` | `session_shutdown` |
 
-A `—` means the agent fires no event for it; the tab simply skips that state.
+`none` means the agent fires no event for it; the tab simply skips that state.
 `blocked` is only as good as the agent's own permission event. Map every way
 the agent can wait on the human, not just permissions: Claude Code's
 `AskUserQuestion` is a tool call, so it needs its own hook or the pane sits at

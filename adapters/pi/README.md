@@ -16,10 +16,11 @@ or copy [`index.ts`](index.ts) into `~/.pi/agent/extensions/`. The mapping:
 | `agent_settled` | `done` |
 | `session_shutdown` | `clear` |
 
-`agent_settled` rather than `agent_end`, because pi may auto-retry, compact,
-or continue with queued messages after `agent_end`; `settled` means it will
-not continue on its own — that is `done`. pi exposes no external event for its
-confirmation prompts, so there is no `blocked` mapping.
+The mapping uses `agent_settled` rather than `agent_end`, because pi may
+auto-retry, compact, or continue with queued messages after `agent_end`;
+`settled` means it will not continue on its own, and that is `done`. pi
+exposes no external event for its confirmation prompts, so there is no
+`blocked` mapping.
 
 The extension resolves the script through `tmux show -gv @agent_state_script`,
 published by the tmux plugin (step 1 in the top-level README), and no-ops
