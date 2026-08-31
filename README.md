@@ -173,8 +173,10 @@ up. You do not restart tmux.
 
 `prefix` + `a` is bound for you at install. It goes straight to the agent that
 most needs you: `blocked` before `done`, and among those, the one that has
-waited longest. No menu, no popup, nothing to read. If nothing needs you, it
-says so and stays put.
+waited longest. Press it again to step to the next one; the pane you are in
+is skipped, so repeated presses walk through everything that needs you. No
+menu, no popup, nothing to read. If nothing needs you, it says so and stays
+put.
 
 Panes are matched with the same test the tabs use, so the key and the tab bar
 can never disagree. It crosses sessions.
