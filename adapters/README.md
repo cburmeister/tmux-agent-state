@@ -31,19 +31,22 @@ directory, tpack uses hashed directory names.
 
 ## Event mapping per agent
 
-All five are built. Each adapter's own README carries the install command and
-the reasoning behind its mapping.
+All nine are built. Each adapter's own README carries the install command and
+the reasoning behind its mapping. One row per agent; `none` means the agent
+fires no event for that word, so the tab simply skips that state.
 
-| Word | Claude Code | [Codex CLI](codex/) | [Gemini CLI](gemini/) | [OpenCode](opencode/) | [pi](pi/) |
-|---|---|---|---|---|---|
-| idle | `SessionStart` | none | `SessionStart` | `session.created` | `session_start` |
-| working | `UserPromptSubmit`, `PostToolUse` | none | `BeforeAgent`, `AfterTool` | `message.updated` (user), `tool.execute.after`, `permission.replied` | `agent_start` |
-| blocked | `PermissionRequest`, `PreToolUse: AskUserQuestion`, `Notification: permission_prompt, elicitation_dialog, agent_needs_input`, `StopFailure` | none (no external event) | `Notification` | `permission.asked`, `session.error` | none (no external event) |
-| done | `Stop` | `agent-turn-complete` | `AfterAgent` | `session.idle` | `agent_settled` |
-| remind | `Notification: idle_prompt` | none | none | none | none |
-| clear | `SessionEnd` | none | `SessionEnd` | `session.deleted` | `session_shutdown` |
+| Agent | idle | working | blocked | done | remind | clear |
+|---|---|---|---|---|---|---|
+| Claude Code ([hooks/](../hooks/hooks.json)) | `SessionStart` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `PermissionDenied`, `ElicitationResult` | `PermissionRequest`, `PreToolUse: AskUserQuestion`, `Notification: permission_prompt, elicitation_dialog, agent_needs_input`, `StopFailure` | `Stop` | `Notification: idle_prompt` | `SessionEnd` |
+| [Codex CLI](codex/) | none | none | none | `agent-turn-complete` | none | none |
+| [Gemini CLI](gemini/) | `SessionStart` | `BeforeAgent`, `AfterTool` | `Notification` | `AfterAgent` | none | `SessionEnd` |
+| [OpenCode](opencode/) | `session.created` | `message.updated` (user), `tool.execute.after`, `permission.replied` | `permission.asked`, `session.error` | `session.idle` | none | `session.deleted` |
+| [pi](pi/) | `session_start` | `agent_start` | none | `agent_settled` | none | `session_shutdown` |
+| [Qwen Code](qwen/) | `SessionStart` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `PermissionDenied` | `PermissionRequest` | `Stop` | none | `SessionEnd` |
+| [Copilot CLI](copilot/) | `sessionStart` | `userPromptSubmitted`, `postToolUse`, `postToolUseFailure` | `permissionRequest` | `agentStop` | none | `sessionEnd` |
+| [goose](goose/) | `SessionStart` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` | none | `Stop` | none | `SessionEnd` |
+| [Amp](amp/) | `session.start` | `agent.start`, `tool.result` | none | `agent.end` | none | none |
 
-`none` means the agent fires no event for it; the tab simply skips that state.
 `blocked` is only as good as the agent's own permission event. Map every way
 the agent can wait on the human, not just permissions: Claude Code's
 `AskUserQuestion` is a tool call, so it needs its own hook or the pane sits at

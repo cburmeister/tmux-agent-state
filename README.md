@@ -90,6 +90,37 @@ pi install git:github.com/cburmeister/tmux-agent-state
 You get `~` while it works and `✓` when it settles. You do not get `!`,
 because pi fires no event for its confirmation prompts.
 
+#### Qwen Code
+
+Merge [adapters/qwen/settings-hooks.json](adapters/qwen/settings-hooks.json)
+into `~/.qwen/settings.json`; details in [adapters/qwen/](adapters/qwen/).
+
+You get the full tab: `~`, `!`, and `✓`.
+
+#### Copilot CLI
+
+Copy [hooks.json](adapters/copilot/hooks.json) into `~/.copilot/hooks/`;
+details in [adapters/copilot/](adapters/copilot/).
+
+You get the full tab: `~`, `!`, and `✓`.
+
+#### goose
+
+Copy [hooks.json](adapters/goose/hooks.json) into
+`~/.agents/plugins/tmux-agent-state/hooks/`; details in
+[adapters/goose/](adapters/goose/).
+
+You get `~` while it works and `✓` when it finishes. You do not get `!`,
+because goose fires no event for its approval prompts.
+
+#### Amp
+
+Copy [tmux-agent-state.ts](adapters/amp/tmux-agent-state.ts) into
+`~/.config/amp/plugins/`; details in [adapters/amp/](adapters/amp/).
+
+You get `~` while it works and `✓` when it finishes. You do not get `!`,
+because Amp fires no event for its approval prompts.
+
 #### Cursor CLI
 
 Not possible yet: its hooks fire in the IDE, and `cursor-agent` exposes no
@@ -210,6 +241,12 @@ set -g @agent_state_notify 'osascript -e "display notification \"agent is $AGENT
 set -g @agent_state_notify 'notify-send "#{session_name}:#{window_name}" "agent is $AGENT_STATE"'
 ```
 
+With terminal-notifier, a click on the notification can jump to the agent:
+
+```tmux
+set -g @agent_state_notify 'terminal-notifier -title "#{window_name}" -message "agent is $AGENT_STATE" -execute "tmux switch-client -t \"$AGENT_STATE_PANE\""'
+```
+
 `@agent_state_notify_states` sets which states fire it: space-separated, any
 of `working` `blocked` `done`, or `off`. The default is `blocked done`.
 
@@ -244,7 +281,7 @@ connection to your terminal.
 | Option | Default | What it does |
 |---|---|---|
 | `@agent_state_key` | `a` | The prefix key bound to triage. `off` binds nothing. |
-| `@agent_state_processes` | `claude\|node\|bun\|codex\|gemini\|opencode\|pi` | The process names that count as "an agent runs in this pane". Add yours if the ack drops your agent's state on visit. |
+| `@agent_state_processes` | `claude\|node\|bun\|codex\|gemini\|opencode\|pi\|qwen\|copilot\|goose\|amp` | The process names that count as "an agent runs in this pane". Add yours if the ack drops your agent's state on visit. |
 
 ## Doctor
 
@@ -278,8 +315,10 @@ remove the `@plugin` line and the adapters you installed.
 - If an agent finishes while you are already in that window, the tab shows ✓
   until you switch away and back, or type. Intentional.
 - `blocked` is only as precise as the agent's own permission event.
-- Denying a permission fires no event, so a pane stays `blocked` until the
-  agent's next tool call or the end of its turn.
+- Denying a permission does not reliably fire an event, so a pane can stay
+  `blocked` until the agent's next tool call or the end of its turn. Where the
+  agent does fire one (Claude Code's and Qwen Code's `PermissionDenied`), the
+  adapters map it and the tab recovers immediately.
 
 ## Testing
 
@@ -305,9 +344,10 @@ the others don't, together:
 - **Events, not screen scraping.** State comes from each agent's own lifecycle
   hooks, so `blocked` fires on the actual permission prompt, not on a regex
   recognising a spinner. It cannot break when the agent's TUI changes.
-- **One plugin, any agent.** Adapters for Claude Code, Codex, Gemini CLI,
-  OpenCode, and pi ship in-repo, and the whole adapter contract is "call one
-  script with one word", so the next agent is an afternoon, not a fork.
+- **One plugin, any agent.** Adapters for nine agents ship in-repo (Claude
+  Code, Codex, Gemini CLI, OpenCode, pi, Qwen Code, Copilot CLI, goose, Amp),
+  and the whole adapter contract is "call one script with one word", so the
+  next agent is an afternoon, not a fork.
 
 [Herdr](https://herdr.dev) is a second multiplexer with agent state built in.
 If you don't use tmux, use it. If you do, this is the same feature without

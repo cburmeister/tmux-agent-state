@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "tmux-agent-state",
+            "command": "\"$(tmux show -gv @agent_state_script)\" idle"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "tmux-agent-state",
+            "command": "\"$(tmux show -gv @agent_state_script)\" working"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "tmux-agent-state",
+            "command": "\"$(tmux show -gv @agent_state_script)\" working"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "tmux-agent-state",
+            "command": "\"$(tmux show -gv @agent_state_script)\" working"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "tmux-agent-state",
+            "command": "\"$(tmux show -gv @agent_state_script)\" done"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "tmux-agent-state",
+            "command": "\"$(tmux show -gv @agent_state_script)\" clear"
+          }
+        ]
+      }
+    ]
+  }
+}

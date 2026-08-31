@@ -147,6 +147,13 @@ visit t:0; "$H" pick;                                 chk pick-oldest-blocked-fi
 # working and idle are not "needs you"
 runp "$D1" clear; runp "$D2" working; runp "$Z" idle
 visit t:0; run blocked; "$H" pick;                    chk pick-ignores-working-and-idle "$(T display -p '#W')" agent
+# the pane you are in is skipped: repeated presses cycle through everything, oldest first
+runp "$D2" clear; runp "$Z" clear
+run blocked; T set -p -t "$A" @agent_state_since "$(( $(date +%s) - 300 ))"; runp "$D1" blocked
+visit t:agent; T select-pane -t "$A"; "$H" pick;      chk pick-skips-current "$(T display -p '#W')" duo
+"$H" pick;                                            chk pick-cycles-back "$(T display -p '#W')" agent
+runp "$D1" clear; visit t:agent; T select-pane -t "$A"
+"$H" pick;                                            chk pick-single-stays-put "$(T display -p '#{pane_id}')" "$A"
 run clear; runp "$D1" clear; runp "$D2" clear; runp "$Z" clear; run idle; unflag
 
 # --- two agents in one window: tab shows the worst pane ---------------------
@@ -261,7 +268,7 @@ out=$( ($H ack %9999; echo "rc=$?") 2>&1 );                                 chk 
 # --- tmux plugin entry point on a bare server -------------------------------
 fresh; T set -g window-status-format '#I:#W'
 T set -g @agent_state_processes "claude|sleep'; kill-server; '"; ./agent-state.tmux
-chk bad-processes-falls-back "$(T show -gv @agent_state_processes_active)" "claude|node|bun|codex|gemini|opencode|pi"
+chk bad-processes-falls-back "$(T show -gv @agent_state_processes_active)" "claude|node|bun|codex|gemini|opencode|pi|qwen|copilot|goose|amp"
 # setup at config-load time, how tpack/TPM run it: a run-shell in the config, before any pane exists
 T kill-server 2>/dev/null; sleep 0.2; CONF=$(mktemp); printf 'set -g window-status-format "#I:#W"\nrun-shell "%s/agent-state.tmux"\n' "$PWD" > "$CONF"
 (unset TMUX; T -f "$CONF" new-session -d -s t 'sleep 900'); waitfor 1 count window-status-format; rm -f "$CONF"
@@ -287,7 +294,7 @@ fresh
 chk version-in-step "$(grep -o '^VERSION=[0-9.]*' "$H" | cut -d= -f2)/$(jq -r .version package.json)" "$(jq -r .version .claude-plugin/plugin.json)/$(jq -r .version .claude-plugin/plugin.json)"
 # the Claude Code adapter's event -> word contract, as documented in README.md and adapters/README.md
 chk hooks-contract "$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "*") as $m | .hooks[].command | sub(".*agent-state.sh ";"") | "\($e):\($m)=\(.)"' hooks/hooks.json | tr '\n' ' ')" \
-  "SessionStart:startup|resume|clear=idle UserPromptSubmit:*=working PreToolUse:AskUserQuestion=blocked PostToolUse:*=working PermissionRequest:*=blocked Notification:permission_prompt|elicitation_dialog|agent_needs_input=blocked Notification:idle_prompt=remind Stop:*=done StopFailure:*=blocked SessionEnd:*=clear "
+  "SessionStart:startup|resume|clear=idle UserPromptSubmit:*=working PreToolUse:AskUserQuestion=blocked PostToolUse:*=working PostToolUseFailure:*=working PermissionRequest:*=blocked PermissionDenied:*=working Notification:permission_prompt|elicitation_dialog|agent_needs_input=blocked Notification:idle_prompt=remind ElicitationResult:*=working Stop:*=done StopFailure:*=blocked SessionEnd:*=clear "
 # --- adapters: the documented mappings are pinned, and the snippets really run ---------------
 # Codex: the exact notify array from adapters/codex/README.md, invoked the way codex invokes it
 # (argv array, JSON appended as one final argument).
@@ -328,6 +335,22 @@ if command -v node >/dev/null 2>&1; then
 else
   echo "skip opencode-adapter-contract: no node on this machine"
 fi
+# Qwen Code and goose: Claude-shaped snippets, pinned; one executed for real
+chk qwen-hooks-contract "$(jq -r '.hooks | to_entries[] | "\(.key)=\(.value[0].hooks[0].command | split(" ") | last)"' adapters/qwen/settings-hooks.json | tr '\n' ' ')" \
+  "SessionStart=idle UserPromptSubmit=working PostToolUse=working PostToolUseFailure=working PermissionRequest=blocked PermissionDenied=working Stop=done SessionEnd=clear "
+TMUX_PANE="$A" sh -c "$(jq -r '.hooks.PermissionRequest[0].hooks[0].command' adapters/qwen/settings-hooks.json)"
+chk qwen-adapter-snippet-runs "$(st "$A")" blocked
+chk goose-hooks-contract "$(jq -r '.hooks | to_entries[] | "\(.key)=\(.value[0].hooks[0].command | split(" ") | last)"' adapters/goose/hooks.json | tr '\n' ' ')" \
+  "SessionStart=idle UserPromptSubmit=working PostToolUse=working PostToolUseFailure=working Stop=done SessionEnd=clear "
+# Copilot CLI: version-1 hook file with bash commands; one executed for real
+chk copilot-hooks-contract "$(jq -r '.version | tostring' adapters/copilot/hooks.json)/$(jq -r '.hooks | to_entries[] | "\(.key)=\(.value[0].bash | split(" ") | last)"' adapters/copilot/hooks.json | tr '\n' ' ')" \
+  "1/sessionStart=idle userPromptSubmitted=working postToolUse=working postToolUseFailure=working permissionRequest=blocked agentStop=done sessionEnd=clear "
+TMUX_PANE="$A" bash -c "$(jq -r '.hooks.agentStop[0].bash' adapters/copilot/hooks.json)"
+chk copilot-adapter-snippet-runs "$(st "$A")" 'done'
+run clear
+# Amp: the plugin file maps the right events (TS, so pinned by pattern like pi)
+chk amp-adapter-contract "$(grep -oE 'amp\.on\("[a-z.]+".*"(idle|working|blocked|done|clear)"\)' adapters/amp/tmux-agent-state.ts | sed -E 's/amp\.on\("([a-z.]+)".*"([a-z]+)"\)/\1=\2/' | tr '\n' ' ')" \
+  "session.start=idle agent.start=working tool.result=working agent.end=done "
 # pi: the package manifest points at a file that exists and maps the right events
 chk pi-package-extension "$(jq -r '.pi.extensions[0]' package.json)/$([ -f adapters/pi/index.ts ] && echo ok)" "./adapters/pi/index.ts/ok"
 chk pi-adapter-contract "$(grep -o 'pi.on("[a-z_]*", () => report("[a-z]*"))' adapters/pi/index.ts | sed 's/pi.on("\([a-z_]*\)", () => report("\([a-z]*\)"))/\1=\2/' | tr '\n' ' ')" \

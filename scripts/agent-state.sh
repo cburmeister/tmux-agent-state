@@ -27,7 +27,7 @@
 #
 # Only meaningful inside tmux. Always exits 0 and prints nothing, so a broken
 # indicator can never block an agent.
-VERSION=0.6.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
+VERSION=0.7.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
 state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
 case "$state" in setup|ack|jump|pick|doctor|uninstall|_rows) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
@@ -40,7 +40,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # ---- render config (runtime only, idempotent) -------------------------------
 # Overridable via global options in .tmux.conf:
 #   set -g @agent_state_marker    '...'      the tab suffix (default built below; must mention @agent_state)
-#   set -g @agent_state_processes 'claude|node|bun|codex|gemini|opencode|pi'   what counts as an agent pane
+#   set -g @agent_state_processes 'claude|node|bun|codex|gemini|opencode|pi|qwen|copilot|goose|amp'   what counts as an agent pane
 #   set -g @agent_state_glyph_blocked '!'    the marker glyph per state (defaults: ! ~ ✓)
 #   set -g @agent_state_glyph_working '~'
 #   set -g @agent_state_glyph_done    '✓'
@@ -59,7 +59,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 #   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (default: the style options above)
 #   set -g @agent_state_border_working 'fg=#f9e2af'
 #   set -g @agent_state_border_done    'fg=#a6e3a1'
-DEFAULT_PROCESSES='claude|node|bun|codex|gemini|opencode|pi'
+DEFAULT_PROCESSES='claude|node|bun|codex|gemini|opencode|pi|qwen|copilot|goose|amp'
 PANES='#{P:#{@agent_state} }'   # every pane's state in this window, space separated
 # The 0.2.x marker read a *window* option; strip it on upgrade so tabs keep working without a tmux restart.
 OLD_MARKER='#{?#{==:#{@agent_state},blocked},#[fg=red bold] !,}#{?#{==:#{@agent_state},working},#[fg=yellow] ~,}#{?#{==:#{@agent_state},done},#[fg=green] ✓,}'
@@ -232,8 +232,12 @@ pick_rows() {   # rank US pane US window US session US windex US wname US state 
 if [ "$state" = _rows ]; then pick_rows | tr "$US" ' '; exit 0; fi   # internal: test seam for the row logic
 if [ "$state" = pick ]; then
   # No UI, ever: go straight to the agent that most needs you. pick_rows already ranks them
-  # blocked before done and longest-waiting first, so the top row is the answer.
-  pane=$(pick_rows | awk -F"$US" '$1 <= 2 {print $2; exit}')
+  # blocked before done and longest-waiting first. The pane you are already in is skipped,
+  # so pressing the key again walks through everything that needs you, oldest first.
+  here=$(t display -p '#{pane_id}')
+  pane=$(pick_rows | awk -F"$US" -v here="$here" '
+    $1 <= 2 { if (first == "") first = $2; if ($2 != here) { print $2; found = 1; exit } }
+    END { if (!found && first != "") print first }')
   [ -n "$pane" ] || { t display-message 'no agent needs you'; exit 0; }
   goto_pane "$pane"; exit 0
 fi

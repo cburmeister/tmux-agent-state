@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "\"$(tmux show -gv @agent_state_script)\" idle"
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "\"$(tmux show -gv @agent_state_script)\" working"
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "\"$(tmux show -gv @agent_state_script)\" working"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "type": "command",
+        "bash": "\"$(tmux show -gv @agent_state_script)\" working"
+      }
+    ],
+    "permissionRequest": [
+      {
+        "type": "command",
+        "bash": "\"$(tmux show -gv @agent_state_script)\" blocked"
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "\"$(tmux show -gv @agent_state_script)\" done"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "\"$(tmux show -gv @agent_state_script)\" clear"
+      }
+    ]
+  }
+}
