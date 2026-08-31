@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "name": "tmux-agent-state", "command": "\"$(tmux show -gv @agent_state_script)\" idle" }] }
+    ],
+    "BeforeAgent": [
+      { "hooks": [{ "type": "command", "name": "tmux-agent-state", "command": "\"$(tmux show -gv @agent_state_script)\" working" }] }
+    ],
+    "AfterTool": [
+      { "hooks": [{ "type": "command", "name": "tmux-agent-state", "command": "\"$(tmux show -gv @agent_state_script)\" working" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "name": "tmux-agent-state", "command": "\"$(tmux show -gv @agent_state_script)\" blocked" }] }
+    ],
+    "AfterAgent": [
+      { "hooks": [{ "type": "command", "name": "tmux-agent-state", "command": "\"$(tmux show -gv @agent_state_script)\" done" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "name": "tmux-agent-state", "command": "\"$(tmux show -gv @agent_state_script)\" clear" }] }
+    ]
+  }
+}

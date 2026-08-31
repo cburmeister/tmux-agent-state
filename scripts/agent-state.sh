@@ -7,6 +7,8 @@
 #   clear                             remove the state (session ended)
 #   setup                             configure tmux only (used by the tmux plugin entry point)
 #   pick                              go to the agent that most needs you (blocked, else done; oldest first)
+#   doctor                            print a diagnosis of the installation (the one mode that prints)
+#   uninstall                         undo everything in the running tmux server (config files untouched)
 #   jump                              deprecated alias kept for 0.3.x configs: straight to the first
 #                                     blocked pane, else the first done one, no UI
 #   ack <window_id>                   internal: run by the tmux hook when the current window changes
@@ -25,19 +27,26 @@
 #
 # Only meaningful inside tmux. Always exits 0 and prints nothing, so a broken
 # indicator can never block an agent.
-VERSION=0.5.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
+VERSION=0.6.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
 state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
-case "$state" in setup|ack|jump|pick|_rows) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
+case "$state" in setup|ack|jump|pick|doctor|uninstall|_rows) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac
 
-TMUX_BIN=$(command -v tmux || command -v /opt/homebrew/bin/tmux || command -v /usr/local/bin/tmux); [ -x "$TMUX_BIN" ] || exit 0   # hooks may run with a minimal PATH
+TMUX_BIN=$(command -v tmux || command -v /opt/homebrew/bin/tmux || command -v /usr/local/bin/tmux)
+[ -x "$TMUX_BIN" ] || { [ "$state" = doctor ] && { echo 'tmux-agent-state doctor: tmux not found in PATH'; exit 1; }; exit 0; }   # hooks may run with a minimal PATH
 t() { "$TMUX_BIN" "$@" 2>/dev/null; }
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 # ---- render config (runtime only, idempotent) -------------------------------
 # Overridable via global options in .tmux.conf:
-#   set -g @agent_state_marker    '...'      the tab suffix (default below; must mention @agent_state)
+#   set -g @agent_state_marker    '...'      the tab suffix (default built below; must mention @agent_state)
 #   set -g @agent_state_processes 'claude|node|bun|codex|gemini|opencode|pi'   what counts as an agent pane
+#   set -g @agent_state_glyph_blocked '!'    the marker glyph per state (defaults: ! ~ ✓)
+#   set -g @agent_state_glyph_working '~'
+#   set -g @agent_state_glyph_done    '✓'
+#   set -g @agent_state_style_blocked 'fg=red'      the state's colour, used for the tab glyph, the
+#   set -g @agent_state_style_working 'fg=yellow'   whole-tab styles, and (unless overridden
+#   set -g @agent_state_style_done    'fg=green'    below) the pane border
 #   set -g @agent_state_tabs      attention  whole tab red when blocked, glyph only otherwise (default)
 #                                 colour     whole tab coloured for every state
 #                                 marker     glyph only
@@ -47,12 +56,11 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 #   set -g @agent_state_notify_states 'blocked'   which states fire it: any of working/blocked/done, or off (default: blocked done)
 #   set -g @agent_state_key       b          prefix key bound to pick at setup (default a; off binds nothing)
 #   set -g @agent_state_borders   off        don't colour pane borders by state
-#   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (defaults: fg=red, fg=yellow, fg=green)
+#   set -g @agent_state_border_blocked 'fg=#f38ba8'   border styles per state (default: the style options above)
 #   set -g @agent_state_border_working 'fg=#f9e2af'
 #   set -g @agent_state_border_done    'fg=#a6e3a1'
 DEFAULT_PROCESSES='claude|node|bun|codex|gemini|opencode|pi'
 PANES='#{P:#{@agent_state} }'   # every pane's state in this window, space separated
-DEFAULT_MARKER="#{?#{m:*blocked*,$PANES},#[fg=red bold] !,#{?#{m:*working*,$PANES},#[fg=yellow] ~,#{?#{m:*done*,$PANES},#[fg=green] ✓,}}}"
 # The 0.2.x marker read a *window* option; strip it on upgrade so tabs keep working without a tmux restart.
 OLD_MARKER='#{?#{==:#{@agent_state},blocked},#[fg=red bold] !,}#{?#{==:#{@agent_state},working},#[fg=yellow] ~,}#{?#{==:#{@agent_state},done},#[fg=green] ✓,}'
 
@@ -63,19 +71,41 @@ OLD_MARKER='#{?#{==:#{@agent_state},blocked},#[fg=red bold] !,}#{?#{==:#{@agent_
 # with show -gv because a format would return a window/session-scoped value, or an expanded
 # one before the first session exists, and we edit the global option only.
 US=$'\037'
+unus() {   # tmux 3.4 escapes non-printable output, so the separator arrives as a literal
+  # backslash sequence; 3.2 and 3.5+ emit the raw byte. Put the byte back either way.
+  case "$1" in *"$US"*) printf '%s\n' "$1" ;; *) printf '%s\n' "${1//'\037'/$US}" ;; esac
+}
 read_opts() {
   local o f='' out
-  for o in version @agent_state_marker @agent_state_processes @agent_state_processes_active @agent_state_script @agent_state_version \
+  for o in version @agent_state_marker @agent_state_marker_active @agent_state_processes @agent_state_processes_active @agent_state_script @agent_state_version \
            @agent_state_tabs @agent_state_tab_prefix @agent_state_bell @agent_state_remind @agent_state_borders @agent_state_borders_supported \
            @agent_state_border_blocked @agent_state_border_working @agent_state_border_done pane_tty @agent_state \
-           @agent_state_notify @agent_state_notify_states; do f="$f#{$o}$US"; done
+           @agent_state_glyph_blocked @agent_state_glyph_working @agent_state_glyph_done \
+           @agent_state_style_blocked @agent_state_style_working @agent_state_style_done \
+           @agent_state_notify_states @agent_state_notify; do f="$f#{$o}$US"; done
   # shellcheck disable=SC2086  # ${TMUX_PANE:+-t "$TMUX_PANE"} expands to two words on purpose
   out=$(t display -p ${TMUX_PANE:+-t "$TMUX_PANE"} "$f") || return 1
-  IFS=$US read -r o_tmux_version o_marker o_procs o_procs_active o_script o_version o_tabs o_tab_prefix o_bell o_remind o_borders o_borders_supported \
-    o_border_blocked o_border_working o_border_done o_tty o_state o_notify o_notify_states <<< "$out"   # notify last: one read stops at a newline, so a multi-line command truncates only itself
+  out=$(unus "$out")
+  IFS=$US read -r o_tmux_version o_marker o_marker_active o_procs o_procs_active o_script o_version o_tabs o_tab_prefix o_bell o_remind o_borders o_borders_supported \
+    o_border_blocked o_border_working o_border_done o_tty o_state \
+    o_glyph_blocked o_glyph_working o_glyph_done o_style_blocked o_style_working o_style_done \
+    o_notify_states o_notify <<< "$out"   # notify last: one read stops at a newline, so a multi-line command truncates only itself
   o_wsf=$(t show -gv window-status-format); o_wscf=$(t show -gv window-status-current-format)
 }
-read_opts || exit 0
+if ! read_opts; then
+  [ "$state" = doctor ] && { echo "tmux-agent-state $VERSION doctor: no tmux server is running (start tmux first)"; exit 1; }
+  exit 0
+fi
+
+# The per-state look, used everywhere something is drawn. Glyphs and styles are spliced into
+# tmux conditional formats, where a comma or brace would change the format's meaning, so a
+# style's commas become spaces (both are valid style separators) and a hostile glyph falls back.
+style_b=${o_style_blocked:-${o_border_blocked:-fg=red}}; style_b=${style_b//,/ }
+style_w=${o_style_working:-${o_border_working:-fg=yellow}}; style_w=${style_w//,/ }
+style_d=${o_style_done:-${o_border_done:-fg=green}}; style_d=${style_d//,/ }
+glyph() { case "$1" in ''|*[,#{}]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac; }
+g_b=$(glyph "$o_glyph_blocked" '!'); g_w=$(glyph "$o_glyph_working" '~'); g_d=$(glyph "$o_glyph_done" '✓')
+DEFAULT_MARKER="#{?#{m:*blocked*,$PANES},#[$style_b bold] $g_b,#{?#{m:*working*,$PANES},#[$style_w] $g_w,#{?#{m:*done*,$PANES},#[$style_d] $g_d,}}}"
 
 ensure_tmux() {
   # Needs tmux >= 3.2 (pane options, regex format match, hook arrays). Older: state is still set, just not drawn.
@@ -98,20 +128,24 @@ ensure_tmux() {
   local published=$o_script pubver=$o_version
   if [ -z "$published" ] || supersedes "$published" "$pubver"; then
     t set -g @agent_state_script "$SELF"; t set -g @agent_state_version "$VERSION"
+  elif [ "$published" = "$SELF" ] && [ "$pubver" != "$VERSION" ]; then
+    t set -g @agent_state_version "$VERSION"   # same copy updated in place (a git pull): refresh
   fi
   # Optional: colour the whole tab by state. A style prefix is prepended to the formats; the
-  # prefix in use is remembered so a changed or disabled option can remove it cleanly.
-  local want_prefix="" had_prefix tabs sb sw sd
-  tabs=${o_tabs:-attention}; sb=$o_border_blocked; sw=$o_border_working; sd=$o_border_done
+  # prefix and marker in use are remembered so a changed or disabled option is swapped cleanly,
+  # without waiting for a tmux restart.
+  local want_prefix="" had_prefix had_marker tabs
+  tabs=${o_tabs:-attention}
   case "$tabs" in
-    colour)    want_prefix="#{?#{m:*blocked*,$PANES},#[${sb:-fg=red} bold],#{?#{m:*working*,$PANES},#[${sw:-fg=yellow}],#{?#{m:*done*,$PANES},#[${sd:-fg=green}],}}}" ;;
-    attention) want_prefix="#{?#{m:*blocked*,$PANES},#[${sb:-fg=red} bold],}" ;;
+    colour)    want_prefix="#{?#{m:*blocked*,$PANES},#[$style_b bold],#{?#{m:*working*,$PANES},#[$style_w],#{?#{m:*done*,$PANES},#[$style_d],}}}" ;;
+    attention) want_prefix="#{?#{m:*blocked*,$PANES},#[$style_b bold],}" ;;
   esac
-  had_prefix=$o_tab_prefix
+  had_prefix=$o_tab_prefix; had_marker=$o_marker_active
   for opt in window-status-format window-status-current-format; do
     case "$opt" in window-status-format) cur=$o_wsf ;; *) cur=$o_wscf ;; esac; body=${cur//"$OLD_MARKER"/}
     [ -n "$had_prefix" ] && body=${body#"$had_prefix"}
     [ -n "$want_prefix" ] && body=${body#"$want_prefix"}
+    [ -n "$had_marker" ] && [ "$had_marker" != "$marker" ] && body=${body//"$had_marker"/}   # glyph/style option changed: swap the old marker out
     rest=${body//"$marker"/}; n=$(( (${#body} - ${#rest}) / ${#marker} ))
     if [ "$n" -gt 1 ]; then body="${rest}${marker}"                       # two first-runs raced; collapse to one
     elif [ "$n" -eq 0 ]; then case "$body" in *@agent_state*) ;; *) body="${body}${marker}" ;; esac   # hand-wired formats are left alone
@@ -121,6 +155,7 @@ ensure_tmux() {
   if [ "$had_prefix" != "$want_prefix" ]; then
     if [ -n "$want_prefix" ]; then t set -g @agent_state_tab_prefix "$want_prefix"; else t set -gu @agent_state_tab_prefix; fi
   fi
+  [ "$had_marker" = "$marker" ] || t set -g @agent_state_marker_active "$marker"
   # Window-change hook: ack the new window's panes. Remove a 0.2.x format-based hook and any
   # duplicate of ours (highest index first, so earlier indices stay valid), then add ours once.
   local seen=0 hpath
@@ -153,7 +188,7 @@ ensure_tmux() {
     fi
   fi
 }
-case "$state" in ack|jump|pick|_rows) ;; *) ensure_tmux ;; esac   # hook- and key-driven modes must never (re)configure
+case "$state" in ack|jump|pick|doctor|uninstall|_rows) ;; *) ensure_tmux ;; esac   # hook-, key- and user-driven modes must never (re)configure
 if [ "$state" = setup ]; then
   # Ship the keybinding rather than only documenting it: every comparable plugin binds a key at
   # install time, and a plugin you have to hand-wire before it does anything is friction, not
@@ -183,8 +218,9 @@ pick_rows() {   # rank US pane US window US session US windex US wname US state 
   # One list-panes call. Filtered to panes that have a state AND run an agent process, using the same
   # predicate ack uses, so pick and the tabs can never disagree. blocked > done > working > idle,
   # then longest-waiting first: what needs you, oldest first, then what is ready, then what is busy.
-  local procs=${o_procs_active:-$DEFAULT_PROCESSES} now; now=$(date +%s)
-  t list-panes -a -F "#{pane_id}$US#{window_id}$US#{session_name}$US#{window_index}$US#{window_name}$US#{@agent_state}$US#{@agent_state_since}$US#{pane_current_command}" \
+  local procs=${o_procs_active:-$DEFAULT_PROCESSES} now rows; now=$(date +%s)
+  rows=$(t list-panes -a -F "#{pane_id}$US#{window_id}$US#{session_name}$US#{window_index}$US#{window_name}$US#{@agent_state}$US#{@agent_state_since}$US#{pane_current_command}")
+  unus "$rows" \
   | awk -F"$US" -v OFS="$US" -v procs="^($procs)\$" -v now="$now" '
       $6 != "" && $8 ~ procs {
         rank = ($6=="blocked") ? 1 : ($6=="done") ? 2 : ($6=="working") ? 3 : 4
@@ -202,14 +238,92 @@ if [ "$state" = pick ]; then
   goto_pane "$pane"; exit 0
 fi
 
+# ---- doctor: the one mode that prints ---------------------------------------
+if [ "$state" = doctor ]; then
+  broken=0
+  row() { printf '  %-11s %s\n' "$1" "$2"; }
+  bad() { printf '  %-11s PROBLEM: %s\n' "$1" "$2"; broken=1; }
+  echo "tmux-agent-state $VERSION doctor"
+  dv=${o_tmux_version//[!0-9.]/}; dmaj=${dv%%.*}; dmin=${dv#*.}; dmin=${dmin%%.*}
+  if [ "${dmaj:-0}" -gt 3 ] 2>/dev/null || { [ "${dmaj:-0}" -eq 3 ] && [ "${dmin:-0}" -ge 2 ]; } 2>/dev/null; then
+    row tmux "$o_tmux_version at $TMUX_BIN (>= 3.2, ok)"
+  else bad tmux "$o_tmux_version at $TMUX_BIN, needs >= 3.2: state is tracked but nothing is drawn"; fi
+  if [ -z "$o_script" ]; then bad script "not published yet: run '$SELF setup', or let any adapter event do it"
+  elif [ ! -x "$o_script" ]; then bad script "published copy $o_script is gone: run '$SELF setup' to re-publish"
+  else
+    dextra=''; [ "$o_script" = "$SELF" ] || dextra=" (you are asking a different copy: $SELF, $VERSION)"
+    row script "$o_script (${o_version:-unknown})$dextra"
+  fi
+  dmarker=${o_marker_active:-${o_marker:-$DEFAULT_MARKER}}; dfound=0
+  case "$o_wsf" in *"$dmarker"*|*@agent_state*) dfound=$((dfound+1)) ;; esac
+  case "$o_wscf" in *"$dmarker"*|*@agent_state*) dfound=$((dfound+1)) ;; esac
+  case "$dfound" in
+    2) row tabs "marker present in both window-status formats" ;;
+    *) bad tabs "marker missing from the global window-status format(s): any agent event re-adds it" ;;
+  esac
+  if [ -n "$TMUX" ]; then   # a theme that sets the formats at session scope hides the global marker
+    dsv=$(t show -sv window-status-format)
+    case "$dsv" in ''|*"$dmarker"*|*@agent_state*) ;; *) bad tabs "this session overrides window-status-format (a theme?): the marker is hidden here" ;; esac
+  fi
+  dhooks=$(t show-hooks -g session-window-changed | grep -c 'agent-state.sh.*ack')
+  case "$dhooks" in
+    1) row 'ack hook' "installed (visiting a window acknowledges it)" ;;
+    0) bad 'ack hook' "missing: done panes will never go back to idle; any agent event re-adds it" ;;
+    *) bad 'ack hook' "$dhooks copies installed; any agent event collapses them to one" ;;
+  esac
+  dkeys=$(t list-keys -T prefix 2>/dev/null | grep -E "agent-state\.sh' (pick|jump)" | awk '{printf "prefix %s -> %s\n", $4, $NF}' | tr -d '"' | tr '\n' ',' | sed 's/,$//;s/,/, /g')
+  if [ -n "$dkeys" ]; then row keys "$dkeys"; else row keys "none bound (set at tmux start by the plugin entry point; see @agent_state_key)"; fi
+  case "$o_borders_supported" in
+    1) row borders "per-pane border styles supported" ;;
+    0) row borders "per-pane border styles not supported on this tmux (tabs still work)" ;;
+    *) row borders "not probed yet (first agent event probes it)" ;;
+  esac
+  row processes "${o_procs_active:-$DEFAULT_PROCESSES (defaults; no agent event yet)}"
+  dprocs=${o_procs_active:-$DEFAULT_PROCESSES}; dn=0; dn_b=0; dn_w=0; dn_d=0; dn_i=0
+  while IFS=$US read -r dst dcmd; do
+    [ -n "$dst" ] || continue; [[ "$dcmd" =~ ^($dprocs)$ ]] || continue
+    dn=$((dn+1))
+    case "$dst" in blocked) dn_b=$((dn_b+1)) ;; working) dn_w=$((dn_w+1)) ;; done) dn_d=$((dn_d+1)) ;; idle) dn_i=$((dn_i+1)) ;; esac
+  done <<< "$(unus "$(t list-panes -a -F "#{@agent_state}$US#{pane_current_command}")")"
+  if [ "$dn" -gt 0 ]; then row agents "$dn pane(s) reporting: $dn_b blocked, $dn_w working, $dn_d done, $dn_i idle"
+  else row agents "none reporting yet: start an agent turn in a tmux pane (is its adapter installed?)"; fi
+  exit "$broken"
+fi
+
+# ---- uninstall: undo everything in the running server ------------------------
+if [ "$state" = uninstall ]; then
+  umarker=${o_marker:-$DEFAULT_MARKER}
+  for opt in window-status-format window-status-current-format; do
+    case "$opt" in window-status-format) cur=$o_wsf ;; *) cur=$o_wscf ;; esac
+    body=${cur//"$OLD_MARKER"/}; body=${body//"$umarker"/}
+    [ -n "$o_marker_active" ] && body=${body//"$o_marker_active"/}
+    [ -n "$o_tab_prefix" ] && body=${body//"$o_tab_prefix"/}
+    [ "$body" = "$cur" ] || t set -g "$opt" "$body"
+  done
+  while IFS= read -r line; do
+    case "$line" in *agent-state.sh*ack*) idx=${line%%]*}; idx=${idx##*[}; t set-hook -gu "session-window-changed[$idx]" ;; esac
+  done <<< "$(t show-hooks -g session-window-changed | sort -t'[' -k2 -rn)"
+  while IFS= read -r ukey; do [ -n "$ukey" ] && t unbind-key "$ukey"; done \
+    <<< "$(t list-keys -T prefix 2>/dev/null | grep -E "agent-state\.sh' (pick|jump)" | awk '{print $4}')"
+  while IFS=$US read -r upane ust; do
+    [ -n "$ust" ] || continue
+    t set -pu -t "$upane" @agent_state ';' set -pu -t "$upane" @agent_state_since
+    t set -pu -t "$upane" pane-border-style
+  done <<< "$(unus "$(t list-panes -a -F "#{pane_id}$US#{@agent_state}")")"
+  for o in @agent_state_script @agent_state_version @agent_state_processes_active @agent_state_tab_prefix \
+           @agent_state_marker_active @agent_state_borders_supported; do t set -gu "$o"; done
+  echo 'tmux-agent-state: removed from the running tmux server. Your config files were not touched.'
+  exit 0
+fi
+
 # ---- per-pane rendering -----------------------------------------------------
 border() {   # border <pane> <state|"">
   [ "$o_borders" = off ] && return 0
   [ "$o_borders_supported" = 1 ] || return 0
   case "$2" in
-    blocked) t set -p -t "$1" pane-border-style "${o_border_blocked:-fg=red}" ;;
-    working) t set -p -t "$1" pane-border-style "${o_border_working:-fg=yellow}" ;;
-    done)    t set -p -t "$1" pane-border-style "${o_border_done:-fg=green}" ;;
+    blocked) t set -p -t "$1" pane-border-style "${o_border_blocked:-$style_b}" ;;
+    working) t set -p -t "$1" pane-border-style "${o_border_working:-$style_w}" ;;
+    done)    t set -p -t "$1" pane-border-style "${o_border_done:-$style_d}" ;;
     *)       t set -pu -t "$1" pane-border-style ;;
   esac
 }
@@ -226,13 +340,16 @@ notify() {   # notify <new state>: hand the user's own command a state *transiti
   # command with -- set *and* exported, so both "$AGENT_STATE" in the command and a child reading
   # the environment see them. A plain assignment prefix would only reach the child.
   [ -n "$o_notify" ] || return 0
-  local states=${o_notify_states:-blocked done} prev=${o_state//[!a-z]/}
+  local states=${o_notify_states:-blocked done} prev=${o_state//[!a-z]/} cmd=$o_notify
   [ "$states" = off ] && return 0
   [ "$1" != "$prev" ] || return 0
   case " $states " in *" $1 "*) ;; *) return 0 ;; esac
+  # tmux 3.4 (only: introduced there, reverted in 3.5) stores option values with $ escaped
+  # as \$, so the command's "$AGENT_STATE" would reach sh as a literal. Undo it there.
+  case "$o_tmux_version" in 3.4*) cmd=${cmd//'\$'/$} ;; esac
   t run-shell -b -t "$TMUX_PANE" "AGENT_STATE=$1 AGENT_STATE_PREV=$prev AGENT_STATE_PANE=$TMUX_PANE
 export AGENT_STATE AGENT_STATE_PREV AGENT_STATE_PANE
-$o_notify"
+$cmd"
   return 0
 }
 

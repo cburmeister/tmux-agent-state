@@ -31,23 +31,27 @@ directory, tpack uses hashed directory names.
 
 ## Event mapping per agent
 
-| Word | Claude Code (built) | Codex CLI | Gemini CLI | OpenCode | Pi |
+All five are built. Each adapter's own README carries the install command and
+the reasoning behind its mapping.
+
+| Word | Claude Code | [Codex CLI](codex/) | [Gemini CLI](gemini/) | [OpenCode](opencode/) | [pi](pi/) |
 |---|---|---|---|---|---|
-| idle | `SessionStart` | `SessionStart` | `SessionStart` | session start | session start |
-| working | `UserPromptSubmit`, `PostToolUse` | same | `BeforeAgent`, `AfterTool` | `tool.execute.after` | `tool_call` |
-| blocked | `PermissionRequest`, `PreToolUse: AskUserQuestion`, `Notification: permission_prompt, elicitation_dialog, agent_needs_input`, `StopFailure` | `PermissionRequest` | `Notification` | permission event | ? |
-| done | `Stop` | `Stop` | `AfterAgent` | `session.idle` | agent end |
-| remind | `Notification: idle_prompt` | ? | ? | ? | ? |
-| clear | `SessionEnd` | ? | `SessionEnd` | ? | ? |
+| idle | `SessionStart` | — | `SessionStart` | `session.created` | `session_start` |
+| working | `UserPromptSubmit`, `PostToolUse` | — | `BeforeAgent`, `AfterTool` | `message.updated` (user), `tool.execute.after`, `permission.replied` | `agent_start` |
+| blocked | `PermissionRequest`, `PreToolUse: AskUserQuestion`, `Notification: permission_prompt, elicitation_dialog, agent_needs_input`, `StopFailure` | — (no external event) | `Notification` | `permission.asked`, `session.error` | — (no external event) |
+| done | `Stop` | `agent-turn-complete` | `AfterAgent` | `session.idle` | `agent_settled` |
+| remind | `Notification: idle_prompt` | — | — | — | — |
+| clear | `SessionEnd` | — | `SessionEnd` | `session.deleted` | `session_shutdown` |
 
-A `?` means not verified against that agent's docs yet. Fill it in when you
-build the adapter. `blocked` is only as good as the agent's own permission
-event. Map every way the agent can wait on the human, not just permissions:
-Claude Code's `AskUserQuestion` is a tool call, so it needs its own hook or the
-pane sits at `working` while the agent waits for an answer.
+A `—` means the agent fires no event for it; the tab simply skips that state.
+`blocked` is only as good as the agent's own permission event. Map every way
+the agent can wait on the human, not just permissions: Claude Code's
+`AskUserQuestion` is a tool call, so it needs its own hook or the pane sits at
+`working` while the agent waits for an answer.
 
-`test/run.sh` pins the Claude Code mapping (`hooks-contract`); update the test
-and this table together.
+`test/run.sh` pins every mapping above (`hooks-contract`, and the
+`*-adapter-*` checks, which really execute the Codex and Gemini snippets and
+load the OpenCode plugin); update the tests and this table together.
 
 ## Adding one
 

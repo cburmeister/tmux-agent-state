@@ -196,9 +196,54 @@ T set -g window-status-format '#I:#W'; T set -g @agent_state_tabs colour; run wo
 chk tabs-colour-prefixed-once "$(T show -gv window-status-format | grep -o 'm:\*blocked\*' | wc -l | tr -d ' ')" "2"
 chk tabs-colour-renders "$(tab t:agent)" "#[fg=yellow]2:agent#[fg=yellow] ~"
 T set -g @agent_state_border_working 'fg=#f9e2af'; run working
-chk tabs-colour-restyled "$(tab t:agent | grep -o 'f9e2af' | wc -l | tr -d ' ')" "1"; T set -gu @agent_state_border_working
+chk tabs-colour-restyled "$(tab t:agent | grep -o 'f9e2af' | wc -l | tr -d ' ')" "2"; T set -gu @agent_state_border_working   # tab colour AND glyph: one style option, one look
 T set -g @agent_state_tabs marker; run working
 chk tabs-colour-removed "$(T show -gv window-status-format | cut -c1-5)/$(T show -gv @agent_state_tab_prefix 2>/dev/null)" "#I:#W/"; T set -gu @agent_state_tabs; run clear
+
+# --- glyphs and styles: one option per state, every surface follows ----------
+fresh
+T set -g @agent_state_glyph_blocked 'B'; T set -g @agent_state_style_blocked 'fg=magenta'
+run blocked; chk glyph-style-options "$(tab t:agent)" "2:agent#[fg=magenta bold] B"
+T set -g @agent_state_glyph_blocked 'C'; run working   # option changed at runtime: the marker is swapped, not duplicated
+chk marker-swap-old-gone "$(T show -gv window-status-format | grep -c '] B')" "0"
+chk marker-swap-new-once "$(T show -gv window-status-format | grep -c '] C')" "1"
+T set -g @agent_state_glyph_done 'x,y'; run idle       # a comma or brace would change the format's meaning: rejected
+chk glyph-hostile-rejected "$(T show -gv window-status-format | grep -c 'x,y')/$(T show -gv window-status-format | grep -c '✓')" "0/1"
+T set -g @agent_state_style_working 'fg=colour99,bold'; run working   # commas in styles become spaces (both are valid)
+chk style-comma-to-space "$(T show -gv window-status-format | grep -c 'fg=colour99 bold')" "1"
+T set -g @agent_state_style_blocked 'fg=magenta'; T set -gu @agent_state_borders_supported; run blocked
+[ "$BS" = 1 ] && chk border-follows-style "$(bd "$A")" "fg=magenta"   # borders default to the state style
+T set -g @agent_state_border_blocked 'fg=blue'; run idle; run blocked
+[ "$BS" = 1 ] && chk border-option-overrides-style "$(bd "$A")" "fg=blue"
+T set -gu @agent_state_glyph_blocked; T set -gu @agent_state_glyph_done; T set -gu @agent_state_style_blocked
+T set -gu @agent_state_style_working; T set -gu @agent_state_border_blocked; run clear
+
+# --- doctor: speaks, and notices what is broken ------------------------------
+fresh; ./agent-state.tmux; run working
+out=$("$H" doctor); rc=$?
+chk doctor-healthy-exit "$rc" "0"
+chk doctor-reports-script "$(echo "$out" | grep -c "script.*$H")" "1"
+chk doctor-reports-agents "$(echo "$out" | grep -c '1 pane(s) reporting')" "1"
+T set -gu @agent_state_script
+out=$("$H" doctor); rc=$?
+chk doctor-broken-exit "$rc" "1"
+chk doctor-names-problem "$(echo "$out" | grep -c 'PROBLEM')" "1"
+run idle   # re-publishes the script
+chk doctor-heals "$("$H" doctor >/dev/null 2>&1; echo $?)" "0"
+run clear
+
+# --- uninstall: leaves the server the way we found it ------------------------
+fresh; ./agent-state.tmux; run blocked
+out=$("$H" uninstall)
+chk uninstall-speaks "$(echo "$out" | grep -c 'removed from the running tmux server')" "1"
+chk uninstall-format-restored "$(T show -gv window-status-format)" "#I:#W"
+chk uninstall-hook-gone "$(hooks | grep -c agent-state.sh)" "0"
+chk uninstall-keys-gone "$(T list-keys -T prefix 2>/dev/null | grep -c agent-state.sh)" "0"
+chk uninstall-pane-state-gone "$(st "$A")/$(bd "$A")" "/"
+chk uninstall-unpublished "$(T show -gv @agent_state_script 2>/dev/null)" ""
+./agent-state.tmux; run working   # and installing again just works
+chk reinstall-after-uninstall "$(hooks | grep -c agent-state.sh)/$(count window-status-format)/$(st "$A")" "1/1/working"
+run clear
 
 # --- hot path: tmux processes per steady-state event (every tool call pays this) ---------
 SHIM=$(mktemp -d); printf '#!/usr/bin/env bash\necho x >> "%s/n"\nexec "%s" "$@"\n' "$SHIM" "$(command -v tmux)" > "$SHIM/tmux"; chmod +x "$SHIM/tmux"
@@ -239,10 +284,55 @@ T set -gu @agent_state_key
 fresh
 
 # --- a plugin update supersedes the hook it left behind, wherever the copies live -------
-chk version-in-step "$(grep -o '^VERSION=[0-9.]*' "$H" | cut -d= -f2)" "$(jq -r .version .claude-plugin/plugin.json)"
+chk version-in-step "$(grep -o '^VERSION=[0-9.]*' "$H" | cut -d= -f2)/$(jq -r .version package.json)" "$(jq -r .version .claude-plugin/plugin.json)/$(jq -r .version .claude-plugin/plugin.json)"
 # the Claude Code adapter's event -> word contract, as documented in README.md and adapters/README.md
 chk hooks-contract "$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "*") as $m | .hooks[].command | sub(".*agent-state.sh ";"") | "\($e):\($m)=\(.)"' hooks/hooks.json | tr '\n' ' ')" \
   "SessionStart:startup|resume|clear=idle UserPromptSubmit:*=working PreToolUse:AskUserQuestion=blocked PostToolUse:*=working PermissionRequest:*=blocked Notification:permission_prompt|elicitation_dialog|agent_needs_input=blocked Notification:idle_prompt=remind Stop:*=done StopFailure:*=blocked SessionEnd:*=clear "
+# --- adapters: the documented mappings are pinned, and the snippets really run ---------------
+# Codex: the exact notify array from adapters/codex/README.md, invoked the way codex invokes it
+# (argv array, JSON appended as one final argument).
+fresh; run working
+CODEX_ARGS=(); while IFS= read -r a; do CODEX_ARGS+=("$a"); done \
+  <<< "$(grep -m1 '^notify = ' adapters/codex/README.md | sed 's/^notify = //' | jq -r '.[]')"
+TMUX_PANE="$A" "${CODEX_ARGS[@]}" '{"type":"agent-turn-complete","turn-id":"1"}'
+chk codex-adapter-snippet-runs "$(st "$A")" 'done'
+# Gemini: the event -> word contract of the shipped settings snippet, and one command executed
+chk gemini-hooks-contract "$(jq -r '.hooks | to_entries[] | "\(.key)=\(.value[0].hooks[0].command | split(" ") | last)"' adapters/gemini/settings-hooks.json | tr '\n' ' ')" \
+  "SessionStart=idle BeforeAgent=working AfterTool=working Notification=blocked AfterAgent=done SessionEnd=clear "
+TMUX_PANE="$A" sh -c "$(jq -r '.hooks.Notification[0].hooks[0].command' adapters/gemini/settings-hooks.json)"
+chk gemini-adapter-snippet-runs "$(st "$A")" blocked
+run clear
+# OpenCode: load the real plugin, fire the bus events it maps, record the words it reports
+if command -v node >/dev/null 2>&1; then
+  ocout=$(node --input-type=module -e '
+    const calls = [];
+    const $ = (strings, ...vals) => ({ quiet() { return this }, nothrow() { calls.push(vals[0]); return Promise.resolve() } });
+    const { TmuxAgentState } = await import("file://" + process.cwd() + "/adapters/opencode/tmux-agent-state.js");
+    process.env.TMUX = "t";
+    const hooks = await TmuxAgentState({ $ });
+    const fire = (type, properties) => hooks.event({ event: { type, properties } });
+    await fire("session.created");
+    await fire("message.updated", { info: { role: "user" } });
+    await fire("message.updated", { info: { role: "assistant" } });   // streaming: not a word
+    await fire("tool.execute.after");
+    await fire("permission.asked");
+    await fire("permission.replied");
+    await fire("session.error");
+    await fire("session.idle");
+    await fire("session.deleted");
+    delete process.env.TMUX;
+    await fire("session.idle");   // outside tmux: reports nothing
+    console.log(calls.map((c) => c.replace(/.* /, "")).join(" "));
+  ' 2>&1)
+  chk opencode-adapter-contract "$ocout" "idle working working blocked working blocked done clear"
+else
+  echo "skip opencode-adapter-contract: no node on this machine"
+fi
+# pi: the package manifest points at a file that exists and maps the right events
+chk pi-package-extension "$(jq -r '.pi.extensions[0]' package.json)/$([ -f adapters/pi/index.ts ] && echo ok)" "./adapters/pi/index.ts/ok"
+chk pi-adapter-contract "$(grep -o 'pi.on("[a-z_]*", () => report("[a-z]*"))' adapters/pi/index.ts | sed 's/pi.on("\([a-z_]*\)", () => report("\([a-z]*\)"))/\1=\2/' | tr '\n' ' ')" \
+  "session_start=idle agent_start=working agent_settled=done session_shutdown=clear "
+
 fresh; V=$(mktemp -d); mkdir -p "$V/old/scripts" "$V/new/scripts"
 sed 's/^VERSION=.*/VERSION=0.0.1/' "$H" > "$V/old/scripts/agent-state.sh"; sed 's/^VERSION=.*/VERSION=0.0.2/' "$H" > "$V/new/scripts/agent-state.sh"; chmod +x "$V"/*/scripts/agent-state.sh
 TMUX_PANE="$A" "$V/old/scripts/agent-state.sh" idle
@@ -253,6 +343,8 @@ TMUX_PANE="$A" "$V/old/scripts/agent-state.sh" idle
 chk older-version-does-not "$(hooks | grep -c '/new/')/$(T show -gv @agent_state_version)" "1/0.0.2"
 ./agent-state.tmux
 chk setup-always-supersedes "$(hooks | grep -c agent-state.sh)/$(T show -gv @agent_state_script)" "1/$H"
+T set -g @agent_state_version 0.0.9; TMUX_PANE="$A" "$H" idle   # the published copy itself was updated in place (git pull)
+chk inplace-update-refreshes-version "$(T show -gv @agent_state_version)" "$(jq -r .version .claude-plugin/plugin.json)"
 TMUX_PANE="$A" "$V/new/scripts/agent-state.sh" idle
 chk bundled-never-supersedes-setup "$(hooks | grep -c '/new/')/$(T show -gv @agent_state_script)" "0/$H"
 rm -rf "$V"

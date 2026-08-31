@@ -21,7 +21,7 @@ notification too? Plug in your own notifier with `@agent_state_notify`, see
 State comes from the agent's own lifecycle events, not from reading the screen.
 `blocked` fires on the actual permission prompt.
 
-Requires tmux >= 3.2 (Ubuntu 22.04 or newer, any current Homebrew).
+Requires tmux >= 3.2 — what Ubuntu 22.04's apt and any recent Homebrew already ship.
 
 ## Install
 
@@ -44,17 +44,19 @@ the ack behaviour. It knows nothing about agents yet.
 The adapter tells the tmux plugin what the agent is doing. Install it the way
 that agent installs things:
 
-| Agent | Adapter install | Status |
+| Agent | Adapter install | Notes |
 |---|---|---|
-| Claude Code | `claude plugin marketplace add cburmeister/tmux-agent-state && claude plugin install tmux-agent-state@cburmeister` | built, tested |
-| Claude Code → other models (`ANTHROPIC_BASE_URL`, Ollama, ...) | same, the hooks are Claude Code's, not the model's | works |
-| Codex CLI | none yet | see [adapters/](adapters/README.md) |
-| Gemini CLI | none yet | |
-| OpenCode | none yet | |
-| Pi | none yet | |
+| Claude Code | `claude plugin marketplace add cburmeister/tmux-agent-state && claude plugin install tmux-agent-state@cburmeister` | all six words |
+| Claude Code → other models (`ANTHROPIC_BASE_URL`, Ollama, ...) | same, the hooks are Claude Code's, not the model's | |
+| Codex CLI | one line in `~/.codex/config.toml`, see [adapters/codex/](adapters/codex/) | `done` only: Codex fires no other external event |
+| Gemini CLI | merge [adapters/gemini/settings-hooks.json](adapters/gemini/settings-hooks.json) into `~/.gemini/settings.json`, see [adapters/gemini/](adapters/gemini/) | |
+| OpenCode | copy [one file](adapters/opencode/tmux-agent-state.js) into `~/.config/opencode/plugins/`, see [adapters/opencode/](adapters/opencode/) | |
+| pi | `pi install git:github.com/cburmeister/tmux-agent-state` | no `blocked`: pi fires no event for it |
+| Cursor CLI | not yet possible | Cursor's hooks fire in the IDE, but `cursor-agent` only fires the shell-execution pair — no lifecycle events to map |
 
 Running more than one agent? Install more than one adapter. The tabs don't care
-which is which.
+which is which. Every adapter is a thin mapping onto the same six words —
+[adapters/README.md](adapters/README.md) has the contract if yours is missing.
 
 Claude Code notes: new sessions pick it up immediately, running sessions need
 `/reload-plugins`. `claude --bare` skips plugins entirely so bare sessions don't
@@ -76,8 +78,9 @@ things render it:
 The tmux plugin runs the script's `setup` at tmux startup. Setup appends the tab
 marker to your existing `window-status-format` and `window-status-current-format`
 (your theme is untouched, the marker is a suffix), adds a `session-window-changed`
-hook, and publishes the script's location as `@agent_state_script`. Both edits
-are content-checked. They happen once and self-heal if you reload your config.
+hook, binds the triage key, and publishes the script's location as
+`@agent_state_script`. Every edit is content-checked. They happen once and
+self-heal if you reload your config.
 
 Visiting a window acknowledges it. `done` panes go back to idle, panes no longer
 running an agent lose their state, `working` and `blocked` panes are left alone.
@@ -126,7 +129,18 @@ bind b run-shell '"$(tmux show -gv @agent_state_script)" jump'
 Global options in `.tmux.conf`, read at setup.
 
 ```tmux
-# The marker appended to window tabs. Default shown: worst state across the window's panes.
+# Each state's glyph and colour, used everywhere that state is drawn: the tab marker,
+# the whole-tab styles, and (unless overridden below) the pane border. Defaults shown.
+# Change an option and the running server re-renders on the next agent event; no restart.
+set -g @agent_state_glyph_blocked '!'
+set -g @agent_state_glyph_working '~'
+set -g @agent_state_glyph_done    '✓'
+set -g @agent_state_style_blocked 'fg=red'      # any tmux style; space-separate attributes
+set -g @agent_state_style_working 'fg=yellow'
+set -g @agent_state_style_done    'fg=green'
+
+# Or replace the whole tab marker. Default shown (built from the glyphs and styles above):
+# worst state across the window's panes.
 set -g @agent_state_marker '#{?#{m:*blocked*,#{P:#{@agent_state} }},#[fg=red bold] !,#{?#{m:*working*,#{P:#{@agent_state} }},#[fg=yellow] ~,#{?#{m:*done*,#{P:#{@agent_state} }},#[fg=green] ✓,}}}'
 
 # Process names that count as "an agent is running in this pane". Default shown.
@@ -160,7 +174,7 @@ set -g @agent_state_key b
 # styles (probed at setup; older tmux gets the tabs only).
 set -g @agent_state_borders off
 
-# Border style per state. Defaults shown.
+# Border style per state. Default: the @agent_state_style_* options above.
 set -g @agent_state_border_blocked 'fg=red'
 set -g @agent_state_border_working 'fg=yellow'
 set -g @agent_state_border_done    'fg=green'
@@ -189,10 +203,34 @@ If your `window-status-format` already contains `@agent_state` (you hand-wired
 it), the formats are left alone. `#{P:#{@agent_state} }` is every pane's state
 in the window, space separated. Build on that.
 
+## Doctor
+
+Something not rendering?
+
+```bash
+"$(tmux show -gv @agent_state_script)" doctor
+```
+
+prints what the plugin knows: tmux version, where the script is published, whether
+the marker, ack hook, and key are wired (including whether a theme is hiding the
+marker at session scope), and how many panes are reporting. Exits non-zero if
+something needs fixing, and says what.
+
+## Uninstall
+
+```bash
+"$(tmux show -gv @agent_state_script)" uninstall
+```
+
+undoes everything in the running server: formats, hook, key, pane state,
+borders, published options. Your config files are never touched, so
+also remove the `@plugin` line and the adapters you installed.
+
 ## Limits
 
 - Themes that set the status formats at session or window scope override the
-  global option the plugin edits. The marker won't show there.
+  global option the plugin edits. The marker won't show there (`doctor` warns);
+  the pane borders still work.
 - If an agent finishes while you're already in that window, the tab shows ✓
   until you switch away and back, or type. Intentional.
 - `blocked` is only as precise as the agent's own permission event.
@@ -208,9 +246,22 @@ INTEGRATION=1 test/run.sh   # also runs a real `claude -p` with --plugin-dir
 
 Ensure the last line reads `fail=0`.
 
-## Why not Herdr?
+## Why this one?
+
+There are other tmux agent monitors, and good ones. This one makes three bets
+the others don't, together:
+
+- **No dependencies, no daemon.** bash and tmux, nothing else: no fzf, no
+  Python, no Node runtime, no downloaded Rust binary, no background poller.
+  Everything renders through tmux's own formats and hooks, and the hot path
+  costs a handful of tmux calls per *event*, zero per second.
+- **Events, not screen scraping.** State comes from each agent's own lifecycle
+  hooks, so `blocked` fires on the actual permission prompt, not on a regex
+  recognising a spinner — and it can't break when the agent's TUI changes.
+- **One plugin, any agent.** Adapters for Claude Code, Codex, Gemini CLI,
+  OpenCode, and pi ship in-repo, and the whole adapter contract is "call one
+  script with one word", so the next agent is an afternoon, not a fork.
 
 [Herdr](https://herdr.dev) is a second multiplexer with agent state built in. If
 you don't use tmux, use it. If you do, this is the same feature without leaving
-tmux. It uses the agents' own events rather than screen matching, so `blocked`
-doesn't depend on a regex recognising the prompt.
+tmux.
