@@ -19,5 +19,5 @@ jobs:
       - if: runner.os == 'macOS'
         run: brew install tmux shellcheck
       - run: tmux -V && bash --version | head -1 && jq --version
-      - run: shellcheck -s bash scripts/agent-state.sh agent-state.tmux test/run.sh
+      - run: shellcheck -s bash scripts/agent-state.sh agent-state.tmux test/run.sh demo/record.sh
       - run: test/run.sh

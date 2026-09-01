@@ -6,6 +6,10 @@ All notable changes to this project. The version lives in three places that
 
 ## Unreleased
 
+- README demo gif, recorded by `demo/record.sh` against an isolated tmux
+  server (asciinema + agg, cropped to the status bar with gifsicle). The
+  three agents are real Claude Code sessions loaded with this plugin; every
+  tab change in it is a real hook firing.
 - Docs: the `@agent_state_processes` default in `adapters/README.md` had
   drifted (it was missing `qwen|copilot|goose|amp`); a test now pins the
   documented default in both READMEs to the code.

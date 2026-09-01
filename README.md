@@ -3,6 +3,8 @@
 Agent state on your tmux window tabs, for people who already live in tmux and
 run coding agents in it.
 
+![The tmux status bar while three Claude Code sessions work in three windows: one finishes (green tick on its tab), one blocks on a permission prompt (red tab), and prefix + a moves the current window straight to it](demo/demo.gif)
+
 Every window that runs an agent gets a marker on its tab:
 
 | Tab | State | Meaning |

@@ -39,6 +39,13 @@ Bug fixes and hardening are welcome. Keep the invariants:
 - `test/run.sh` ends with `fail=0`. CI runs it on tmux 3.2a, 3.4, and
   Homebrew tmux with macOS bash 3.2.
 
+The README gif is recorded by `demo/record.sh` (needs asciinema >= 3, agg,
+gifsicle, and a logged-in `claude`), against an isolated tmux server like
+the tests. It is cropped to the status bar: the tabs are the whole demo.
+The agents in it are real Claude Code sessions, so a run costs three short
+turns of API usage. Re-record it when the tab rendering or the triage flow
+changes.
+
 For a bug report, include your tmux version and the output of:
 
 ```bash
