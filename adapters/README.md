@@ -62,8 +62,9 @@ load the OpenCode plugin); update the tests and this table together.
    extension, ...) plus a README with that agent's install command.
 2. Map events to words per the table and call the script.
 3. If the agent's process name isn't in the `@agent_state_processes` default
-   (`claude|node|bun|codex|gemini|opencode|pi`), add it. Otherwise the ack hook
-   treats the window as agent-less and drops its state on visit.
+   (`claude|node|bun|codex|gemini|opencode|pi|qwen|copilot|goose|amp`), add it.
+   Otherwise the ack hook treats the window as agent-less and drops its state
+   on visit.
 4. Add a line to the install table in the top-level README.
 
 The Claude Code adapter lives at the repo root (`.claude-plugin/`, `hooks/`)

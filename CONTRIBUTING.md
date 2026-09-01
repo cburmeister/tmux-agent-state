@@ -44,3 +44,14 @@ For a bug report, include your tmux version and the output of:
 ```bash
 "$(tmux show -gv @agent_state_script)" doctor
 ```
+
+## Releasing
+
+1. Bump the version in its three homes: `VERSION=` in
+   `scripts/agent-state.sh`, `.claude-plugin/plugin.json`, and
+   `package.json`. `test/run.sh` fails if they disagree.
+2. Add the release to `CHANGELOG.md`.
+3. Run `test/run.sh` and shellcheck; commit.
+4. Tag it and push the tag: `git tag -a v<version> -m v<version> && git push
+   --tags`. Running servers pick the new version up on their next agent
+   event (the superseding logic keys on the version), so nothing else ships.

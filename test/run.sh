@@ -292,6 +292,9 @@ fresh
 
 # --- a plugin update supersedes the hook it left behind, wherever the copies live -------
 chk version-in-step "$(grep -o '^VERSION=[0-9.]*' "$H" | cut -d= -f2)/$(jq -r .version package.json)" "$(jq -r .version .claude-plugin/plugin.json)/$(jq -r .version .claude-plugin/plugin.json)"
+# the processes default is documented verbatim in both READMEs; this catches the docs drifting from the code
+DP=$(sed -n "s/^DEFAULT_PROCESSES='\(.*\)'.*/\1/p" "$H")
+chk processes-default-in-docs "${DP:+set}/$(grep -cF "$DP" README.md)/$(grep -cF "$DP" adapters/README.md)" "set/1/1"
 # the Claude Code adapter's event -> word contract, as documented in README.md and adapters/README.md
 chk hooks-contract "$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "*") as $m | .hooks[].command | sub(".*agent-state.sh ";"") | "\($e):\($m)=\(.)"' hooks/hooks.json | tr '\n' ' ')" \
   "SessionStart:startup|resume|clear=idle UserPromptSubmit:*=working PreToolUse:AskUserQuestion=blocked PostToolUse:*=working PostToolUseFailure:*=working PermissionRequest:*=blocked PermissionDenied:*=working Notification:permission_prompt|elicitation_dialog|agent_needs_input=blocked Notification:idle_prompt=remind ElicitationResult:*=working Stop:*=done StopFailure:*=blocked SessionEnd:*=clear "

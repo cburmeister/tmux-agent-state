@@ -333,7 +333,8 @@ remove the `@plugin` line and the adapters you installed.
 ## Testing
 
 The suite runs against an isolated tmux server. It never touches yours, and it
-needs nothing but bash and tmux.
+needs nothing but bash, tmux, and jq (plus node, for one optional OpenCode
+check that is skipped when node is absent).
 
 ```bash
 test/run.sh
