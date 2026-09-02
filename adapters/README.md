@@ -83,6 +83,15 @@ about double coverage; and each new agent's process name (`devin`, `kilo`,
 `kiro-cli`, `droid`, `grok`) joins `@agent_state_processes` with its adapter,
 not before.
 
+Aider was adjudicated too, and the answer is mostly no: it has no hooks, no
+events, and no plugin system (asked for in its tracker, never built). Its one
+external signal, `--notifications-command`, runs a payload-free command when
+aider next wants input — indistinguishably at turn end and at mid-turn
+confirmation prompts — so the only honest word is `done`, and saying it means
+replacing the user's own notification command. Nobody has asked in either
+request tracker we swept; the two-line `.aider.conf.yml` install waits for
+someone who wants it.
+
 ## Adding one
 
 1. `adapters/<agent>/`: the agent's native config (`hooks.json`, a TypeScript

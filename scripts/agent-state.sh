@@ -27,7 +27,7 @@
 #
 # Only meaningful inside tmux. Always exits 0 and prints nothing, so a broken
 # indicator can never block an agent.
-VERSION=0.7.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
+VERSION=0.8.0   # keep in step with .claude-plugin/plugin.json (test/run.sh checks)
 state="$1"
 [ -n "$AGENT_STATE_LOG" ] && echo "agent-state pane=${TMUX_PANE:-none} $state $2 v=$VERSION self=$0" >> "$AGENT_STATE_LOG"
 case "$state" in setup|ack|jump|pick|doctor|uninstall|_rows) ;; *) [ -n "$TMUX_PANE" ] || exit 0 ;; esac

@@ -1,7 +1,7 @@
 {
   "name": "tmux-agent-state",
   "type": "module",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Agent state on tmux window tabs. This package exists to carry the pi adapter: pi install git:github.com/cburmeister/tmux-agent-state",
   "license": "MIT",
   "repository": "github:cburmeister/tmux-agent-state",

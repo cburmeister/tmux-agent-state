@@ -131,7 +131,8 @@ their docs — full tabs for Devin, Grok, and Droid; `~` and `✓` for Kiro
 adapter is the OpenCode plugin in a different directory. This repo does not
 ship adapters it cannot run, so the verified event mappings sit in
 [adapters/README.md](adapters/README.md) waiting for someone who runs one:
-a PR is a transcription job, not research.
+a PR is a transcription job, not research. Aider is adjudicated there too —
+no hooks; its single notify signal could honestly say only `✓`.
 
 Run more than one agent? Install more than one adapter. The tabs do not care
 which is which. Every adapter is a thin mapping from that agent's events onto
