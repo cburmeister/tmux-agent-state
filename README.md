@@ -10,7 +10,7 @@ Every window that runs an agent gets a marker on its tab:
 | Tab | State | Meaning |
 |---|---|---|
 | `3:api ~` (yellow) | working | the agent runs a turn |
-| `3:api !` (whole tab red, bold) | blocked | the agent needs you: a permission prompt, a question, or an error |
+| `3:api !` (red) | blocked | the agent needs you |
 | `3:api ✓` (green) | done | the agent finished its turn |
 | `3:api` | idle | nothing to see |
 
