@@ -46,7 +46,21 @@ the acknowledge behaviour. It knows nothing about agents yet.
 ### 2. Your agent's adapter
 
 The adapter tells the tmux plugin what the agent does. Install the one for
-the agent you run.
+the agent you run. What lands on the tab depends on what the agent's own
+events can say:
+
+| Agent | `~` working | `!` blocked | `✓` done | Where it falls short |
+|---|:-:|:-:|:-:|---|
+| Claude Code | `~` | `!` | `✓` | |
+| Codex CLI | | | `✓` | no external event while it works or waits for approval |
+| Gemini CLI | `~` | `!` | `✓` | |
+| OpenCode | `~` | `!` | `✓` | |
+| pi | `~` | | `✓` | no event for its confirmation prompts |
+| Qwen Code | `~` | `!` | `✓` | |
+| Copilot CLI | `~` | `!` | `✓` | |
+| goose | `~` | | `✓` | no event for its approval prompts |
+| Amp | `~` | | `✓` | no event for its approval prompts |
+| Cursor CLI | | | | not possible yet: see below |
 
 #### Claude Code
 
@@ -55,8 +69,7 @@ claude plugin marketplace add cburmeister/tmux-agent-state
 claude plugin install tmux-agent-state@cburmeister
 ```
 
-You get the full tab: `~` while it works, `!` when it needs you, `✓` when it
-finishes. New sessions pick it up immediately; running sessions need
+New sessions pick it up immediately; running sessions need
 `/reload-plugins`; `claude --bare` skips plugins, so bare sessions do not
 report. Claude Code pointed at another model (`ANTHROPIC_BASE_URL`, Ollama,
 ...) works exactly the same, because the hooks are Claude Code's, not the
@@ -67,15 +80,10 @@ model's.
 Add one `notify` line to `~/.codex/config.toml`; it is in
 [adapters/codex/](adapters/codex/).
 
-You get the `✓` and the bell when a turn finishes. You do not get `~` or `!`,
-because Codex fires no external event while it works or waits for approval.
-
 #### Gemini CLI
 
 Merge [adapters/gemini/settings-hooks.json](adapters/gemini/settings-hooks.json)
 into `~/.gemini/settings.json`; details in [adapters/gemini/](adapters/gemini/).
-
-You get the full tab: `~`, `!`, and `✓`.
 
 #### OpenCode
 
@@ -83,30 +91,21 @@ Copy [tmux-agent-state.js](adapters/opencode/tmux-agent-state.js) into
 `~/.config/opencode/plugins/`; details in
 [adapters/opencode/](adapters/opencode/).
 
-You get the full tab: `~`, `!`, and `✓`.
-
 #### pi
 
 ```bash
 pi install git:github.com/cburmeister/tmux-agent-state
 ```
 
-You get `~` while it works and `✓` when it settles. You do not get `!`,
-because pi fires no event for its confirmation prompts.
-
 #### Qwen Code
 
 Merge [adapters/qwen/settings-hooks.json](adapters/qwen/settings-hooks.json)
 into `~/.qwen/settings.json`; details in [adapters/qwen/](adapters/qwen/).
 
-You get the full tab: `~`, `!`, and `✓`.
-
 #### Copilot CLI
 
 Copy [hooks.json](adapters/copilot/hooks.json) into `~/.copilot/hooks/`;
 details in [adapters/copilot/](adapters/copilot/).
-
-You get the full tab: `~`, `!`, and `✓`.
 
 #### goose
 
@@ -114,16 +113,10 @@ Copy [hooks.json](adapters/goose/hooks.json) into
 `~/.agents/plugins/tmux-agent-state/hooks/`; details in
 [adapters/goose/](adapters/goose/).
 
-You get `~` while it works and `✓` when it finishes. You do not get `!`,
-because goose fires no event for its approval prompts.
-
 #### Amp
 
 Copy [tmux-agent-state.ts](adapters/amp/tmux-agent-state.ts) into
 `~/.config/amp/plugins/`; details in [adapters/amp/](adapters/amp/).
-
-You get `~` while it works and `✓` when it finishes. You do not get `!`,
-because Amp fires no event for its approval prompts.
 
 #### Cursor CLI
 
