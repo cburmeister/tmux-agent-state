@@ -82,6 +82,17 @@ chk uninstall-sweeps-window-copies "$(T show -wv -t t:agent window-status-format
 T set -wu -t t:agent window-status-format
 run idle   # uninstall wiped the render config; the next event reinstalls it for the sections below
 
+# --- the steady-state path stays cheap; CONTRIBUTING calls this pinned ------
+# A PATH shim counts every tmux process one event spawns. A repeated working
+# event (each tool call, the hot path) must stay at the batched reads plus the
+# hook check: nothing else.
+RT=$(command -v tmux); SD=$(mktemp -d); SC=$SD/count
+printf '#!/usr/bin/env bash\necho x >> "%s"\nexec "%s" "$@"\n' "$SC" "$RT" > "$SD/tmux"; chmod +x "$SD/tmux"
+run working; run working   # settle: the second event writes nothing
+: > "$SC"; PATH="$SD:$PATH" TMUX_PANE="$A" "$H" working
+chk steady-state-tmux-calls "$(wc -l < "$SC" | tr -d ' ')" "4"
+rm -rf "$SD"; run idle
+
 # --- single agent pane -------------------------------------------------------
 run working; chk working "$(st "$A")" working; chk working-tab "$(tab t:agent)" "2:agent#[fg=yellow] ~"; chk working-border "$(bd "$A")" "$(b fg=yellow)"
 run blocked; chk blocked "$(st "$A")" blocked; chk blocked-tab "$(tab t:agent)" "2:agent#[fg=red bold] !"; chk blocked-border "$(bd "$A")" "$(b fg=red)"

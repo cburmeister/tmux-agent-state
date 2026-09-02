@@ -123,6 +123,16 @@ Copy [tmux-agent-state.ts](adapters/amp/tmux-agent-state.ts) into
 Not possible yet: its hooks fire in the IDE, and `cursor-agent` exposes no
 lifecycle events.
 
+#### Devin CLI, Grok CLI, Factory Droid, Kilo CLI, Kiro CLI
+
+Possible, not built: all five expose real lifecycle hooks, verified against
+their docs — full tabs for Devin, Grok, and Droid; `~` and `✓` for Kiro
+(its hooks have no permission event); Kilo is an OpenCode fork, so its
+adapter is the OpenCode plugin in a different directory. This repo does not
+ship adapters it cannot run, so the verified event mappings sit in
+[adapters/README.md](adapters/README.md) waiting for someone who runs one:
+a PR is a transcription job, not research.
+
 Run more than one agent? Install more than one adapter. The tabs do not care
 which is which. Every adapter is a thin mapping from that agent's events onto
 the same six-word vocabulary: the four states above, plus `remind` (re-ring

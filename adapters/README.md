@@ -61,6 +61,28 @@ deliberately rings on every `blocked` event.
 `*-adapter-*` checks, which really execute the Codex and Gemini snippets and
 load the OpenCode plugin); update the tests and this table together.
 
+## Adjudicated, not yet built
+
+These agents have real lifecycle hooks, verified against their official docs
+(2026-09), so honest adapters are possible. None ship here yet: this repo
+does not ship adapters it cannot run. A PR is a transcription of the row.
+
+| Agent | idle | working | blocked | done | remind | clear | Install shape |
+|---|---|---|---|---|---|---|---|
+| Devin CLI | `SessionStart` | `UserPromptSubmit`, `PostToolUse` | `PermissionRequest` | `Stop` | none | `SessionEnd` | merge hooks into `~/.config/devin/config.json` |
+| Grok CLI | `SessionStart` | `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `PermissionDenied` | `Notification: permission_prompt`, `StopFailure` | `Stop`, `StopCancelled` | `Notification: idle_prompt` | `SessionEnd` | drop one file in `~/.grok/hooks/` |
+| Factory Droid | `SessionStart` | `UserPromptSubmit`, `PostToolUse` | `Notification: permission_prompt, elicitation_dialog` | `Stop` | `Notification: idle_prompt` | `SessionEnd` | merge hooks into `~/.factory/hooks.json` |
+| Kiro CLI | `SessionStart` | `UserPromptSubmit`, `PostToolUse` | none | `Stop` | none | none | drop `~/.kiro/hooks/agent-state.json` |
+
+Kilo CLI is an OpenCode fork with the identical plugin API: its adapter is
+[the OpenCode plugin](opencode/tmux-agent-state.js) copied into
+`~/.config/kilo/plugin/`, mapping unchanged. Two cautions for whoever builds
+these: Devin and Grok both auto-load hooks from `~/.claude/settings.json`
+(Claude-compat mode), so their READMEs should warn hand-wired Claude users
+about double coverage; and each new agent's process name (`devin`, `kilo`,
+`kiro-cli`, `droid`, `grok`) joins `@agent_state_processes` with its adapter,
+not before.
+
 ## Adding one
 
 1. `adapters/<agent>/`: the agent's native config (`hooks.json`, a TypeScript
