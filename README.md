@@ -148,7 +148,9 @@ tab marker to your `window-status-format` and `window-status-current-format`
 (your theme is untouched; the marker is a suffix). It adds a
 `session-window-changed` hook, binds the triage key, and publishes the
 script's location as `@agent_state_script`. Every edit is content-checked: it
-happens once, and it heals itself after a config reload.
+happens once, it heals itself after a config reload, and a theme that
+overrides the format per window gets the marker woven into its own value on
+that window's next agent event.
 
 Visit a window to acknowledge it: `done` panes go back to `idle`, panes that
 no longer run an agent lose their state, `working` and `blocked` panes stay as
@@ -316,12 +318,11 @@ remove the `@plugin` line and the adapters you installed.
 
 ## Limits
 
-- The tab marker lives in the global `window-status-format`. A theme that sets
-  that option per window outranks it, so the plugin also watches the
-  *effective* format and weaves the marker into the overriding window on that
-  window's next agent event. Until that event the themed window shows no
-  marker; `doctor` points at it. A window format that mentions `@agent_state`
-  is taken as hand-wired and left alone.
+- A theme that sets `window-status-format` per window outranks the global
+  marker. The plugin weaves the marker into the overriding window's own
+  format, but only on that window's next agent event: until then the themed
+  window shows no marker, and `doctor` points at it. A window format that
+  mentions `@agent_state` is taken as hand-wired and left entirely alone.
 - If an agent finishes while you are already in that window, the tab shows ✓
   until you switch away and back, or type. Intentional.
 - The tabs describe the session you are looking at. An agent blocked in
@@ -361,7 +362,10 @@ management. This one makes three bets the others don't, together:
 - **No dependencies, no daemon.** Nothing but bash and tmux: no fzf, no
   Python, no Node runtime, no downloaded Rust binary, no background poller.
   Everything renders through tmux's own formats and hooks, and the hot path
-  costs a handful of tmux calls per *event*, zero per second.
+  costs a handful of tmux calls per *event*, zero per second. The failure
+  modes that fill the alternatives' issue trackers — a sidebar pane breaking
+  the window layout, a daemon eating CPU and memory all day — have nothing
+  here to happen to.
 - **Events, not screen scraping.** State comes from each agent's own lifecycle
   hooks, so `blocked` fires on the actual permission prompt, not on a regex
   recognising a spinner. It cannot break when the agent's TUI changes.
