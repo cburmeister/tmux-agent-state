@@ -21,7 +21,9 @@ flag. For a desktop notification, connect your own notifier: see
 [Notify](#notify).
 
 State comes from the agent's own lifecycle events. The plugin does not read
-the screen. `blocked` fires on the actual permission prompt.
+the screen. `blocked` fires on the actual permission prompt. And one key,
+`prefix` + `a`, goes straight to whatever needs you: see
+[Triage](#triage-go-to-whatever-needs-you).
 
 Requires tmux >= 3.2.
 
@@ -326,6 +328,9 @@ remove the `@plugin` line and the adapters you installed.
   happening. The pane borders are separate options and still colour.
 - If an agent finishes while you are already in that window, the tab shows ✓
   until you switch away and back, or type. Intentional.
+- The tabs describe the session you are looking at. An agent blocked in
+  another session still rings its bell, and `prefix` + `a` still goes to it,
+  but no tab here turns red on its behalf.
 - `blocked` is only as precise as the agent's own permission event.
 - Denying a permission does not reliably fire an event, so a pane can stay
   `blocked` until the agent's next tool call or the end of its turn. Where the
@@ -347,8 +352,15 @@ Ensure the last line reads `fail=0`. Set `INTEGRATION=1` to also run a real
 
 ## Why this one?
 
-There are other tmux agent monitors, and good ones. This one makes three bets
-the others don't, together:
+There are other tmux agent monitors, and good ones. Tab markers, like this
+one:
+[tmux-agent-indicator](https://github.com/accessd/tmux-agent-indicator),
+[gentle-agent-state](https://github.com/Gentleman-Programming/gentle-agent-state),
+[tmux-agent-status](https://github.com/partner0/tmux-agent-status). Bigger:
+[tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar),
+[tmux-claude-session-manager](https://github.com/craftzdog/tmux-claude-session-manager),
+and [workmux](https://workmux.raine.dev) add sidebars, pickers, and session
+management. This one makes three bets the others don't, together:
 
 - **No dependencies, no daemon.** Nothing but bash and tmux: no fzf, no
   Python, no Node runtime, no downloaded Rust binary, no background poller.
