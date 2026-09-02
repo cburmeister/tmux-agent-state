@@ -315,10 +315,12 @@ remove the `@plugin` line and the adapters you installed.
 
 ## Limits
 
-- The tab marker lives in the global `window-status-format`. Some themes set
-  that option per session or per window instead, and in tmux the most specific
-  scope wins, so those tabs never show the marker. `doctor` warns when this is
-  happening. The pane borders are separate options and still colour.
+- The tab marker lives in the global `window-status-format`. A theme that sets
+  that option per window outranks it, so the plugin also watches the
+  *effective* format and weaves the marker into the overriding window on that
+  window's next agent event. Until that event the themed window shows no
+  marker; `doctor` points at it. A window format that mentions `@agent_state`
+  is taken as hand-wired and left alone.
 - If an agent finishes while you are already in that window, the tab shows ✓
   until you switch away and back, or type. Intentional.
 - The tabs describe the session you are looking at. An agent blocked in

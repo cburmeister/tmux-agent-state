@@ -58,6 +58,30 @@ chk migrate-old-marker-gone "$(T show -gv window-status-format | grep -c '#{==:#
 chk migrate-new-marker-once "$(count window-status-format)" "1"
 chk migrate-old-hook-gone "$(hooks | grep -c '#{==:#{@agent_state},done}')/$(hooks | grep -c 'agent-state.sh')" "0/1"
 
+# --- a theme's per-window format outranks the global copy: weave the marker in there ---
+WM=$(T show -gv window-status-format); WM=${WM#'#I:#W'}
+T set -w -t t:agent window-status-format '[#I-themed:#W]'
+run working
+chk theme-override-healed "$(T show -wv -t t:agent window-status-format)" "[#I-themed:#W]${WM}"
+chk theme-override-renders "$(tab t:agent)" "[2-themed:agent]#[fg=yellow] ~"
+run idle; run working
+chk theme-heal-idempotent "$(T show -wv -t t:agent window-status-format | grep -o 'fg=yellow' | wc -l | tr -d ' ')" "1"
+# a glyph change swaps the woven copy too, same as the global one
+T set -g @agent_state_glyph_working '+'; run idle
+chk theme-heal-swaps-on-glyph-change "$(T show -wv -t t:agent window-status-format | grep -o '+' | wc -l | tr -d ' ')" "1"
+T set -gu @agent_state_glyph_working; run idle   # swap back before moving on
+chk theme-heal-swaps-back "$(T show -wv -t t:agent window-status-format)" "[#I-themed:#W]${WM}"
+# a hand-wired window format that mentions @agent_state is the user's own: left alone
+T set -w -t t:agent window-status-format 'mine #{@agent_state}'
+run working
+chk theme-hand-wired-untouched "$(T show -wv -t t:agent window-status-format)" 'mine #{@agent_state}'
+# uninstall sweeps the woven window copies, and leaves the theme's own format standing
+T set -w -t t:agent window-status-format "[#I-themed:#W]${WM}"
+"$H" uninstall >/dev/null
+chk uninstall-sweeps-window-copies "$(T show -wv -t t:agent window-status-format)" '[#I-themed:#W]'
+T set -wu -t t:agent window-status-format
+run idle   # uninstall wiped the render config; the next event reinstalls it for the sections below
+
 # --- single agent pane -------------------------------------------------------
 run working; chk working "$(st "$A")" working; chk working-tab "$(tab t:agent)" "2:agent#[fg=yellow] ~"; chk working-border "$(bd "$A")" "$(b fg=yellow)"
 run blocked; chk blocked "$(st "$A")" blocked; chk blocked-tab "$(tab t:agent)" "2:agent#[fg=red bold] !"; chk blocked-border "$(bd "$A")" "$(b fg=red)"

@@ -82,6 +82,7 @@ read_opts() {
            @agent_state_border_blocked @agent_state_border_working @agent_state_border_done pane_tty @agent_state \
            @agent_state_glyph_blocked @agent_state_glyph_working @agent_state_glyph_done \
            @agent_state_style_blocked @agent_state_style_working @agent_state_style_done \
+           window-status-format window-status-current-format \
            @agent_state_notify_states @agent_state_notify; do f="$f#{$o}$US"; done
   # shellcheck disable=SC2086  # ${TMUX_PANE:+-t "$TMUX_PANE"} expands to two words on purpose
   out=$(t display -p ${TMUX_PANE:+-t "$TMUX_PANE"} "$f") || return 1
@@ -89,8 +90,9 @@ read_opts() {
   IFS=$US read -r o_tmux_version o_marker o_marker_active o_procs o_procs_active o_script o_version o_tabs o_tab_prefix o_bell o_remind o_borders o_borders_supported \
     o_border_blocked o_border_working o_border_done o_tty o_state \
     o_glyph_blocked o_glyph_working o_glyph_done o_style_blocked o_style_working o_style_done \
+    o_wsf_eff o_wscf_eff \
     o_notify_states o_notify <<< "$out"   # notify last: one read stops at a newline, so a multi-line command truncates only itself
-  o_wsf=$(t show -gv window-status-format); o_wscf=$(t show -gv window-status-current-format)
+  o_wsf=$(t show -gv window-status-format); o_wscf=$(t show -gv window-status-current-format)   # the format fields above are the *effective* (scope-resolved) values, raw; these are the global ones we edit
 }
 if ! read_opts; then
   [ "$state" = doctor ] && { echo "tmux-agent-state $VERSION doctor: no tmux server is running (start tmux first)"; exit 1; }
@@ -141,8 +143,8 @@ ensure_tmux() {
     attention) want_prefix="#{?#{m:*blocked*,$PANES},#[$style_b bold],}" ;;
   esac
   had_prefix=$o_tab_prefix; had_marker=$o_marker_active
-  for opt in window-status-format window-status-current-format; do
-    case "$opt" in window-status-format) cur=$o_wsf ;; *) cur=$o_wscf ;; esac; body=${cur//"$OLD_MARKER"/}
+  weave() {   # weave <format>: that format carrying exactly one current marker and prefix
+    local body=${1//"$OLD_MARKER"/} rest n
     [ -n "$had_prefix" ] && body=${body#"$had_prefix"}
     [ -n "$want_prefix" ] && body=${body#"$want_prefix"}
     [ -n "$had_marker" ] && [ "$had_marker" != "$marker" ] && body=${body//"$had_marker"/}   # glyph/style option changed: swap the old marker out
@@ -150,8 +152,32 @@ ensure_tmux() {
     if [ "$n" -gt 1 ]; then body="${rest}${marker}"                       # two first-runs raced; collapse to one
     elif [ "$n" -eq 0 ]; then case "$body" in *@agent_state*) ;; *) body="${body}${marker}" ;; esac   # hand-wired formats are left alone
     fi
-    [ "${want_prefix}${body}" = "$cur" ] || t set -g "$opt" "${want_prefix}${body}"
+    printf '%s%s' "$want_prefix" "$body"
+  }
+  local new eff
+  for opt in window-status-format window-status-current-format; do
+    case "$opt" in window-status-format) cur=$o_wsf ;; *) cur=$o_wscf ;; esac
+    new=$(weave "$cur")
+    [ "$new" = "$cur" ] || t set -g "$opt" "$new"
   done
+  # A theme that sets a format at window scope outranks the global copy and hides the
+  # marker there (window scope is the only scope beside global: a flagless `set` on a
+  # window option lands on the window). The *effective* values ride the batched read, so
+  # detection costs nothing; only a window that is actually overridden pays the two extra
+  # calls, once, on its own agent's event.
+  if [ -n "$TMUX_PANE" ]; then
+    local swap
+    for opt in window-status-format window-status-current-format; do
+      case "$opt" in window-status-format) eff=$o_wsf_eff ;; *) eff=$o_wscf_eff ;; esac
+      case "$eff" in ''|*"$marker"*) continue ;; esac
+      swap=''   # a stale marker from before a glyph/style change mentions @agent_state too,
+      [ -n "$had_marker" ] && [ "$had_marker" != "$marker" ] && case "$eff" in *"$had_marker"*) swap=1 ;; esac
+      [ -n "$swap" ] || case "$eff" in *@agent_state*) continue ;; esac   # ... but a hand-wired format is left alone
+      cur=$(t show -wv -t "$TMUX_PANE" "$opt"); [ -n "$cur" ] || continue
+      new=$(weave "$cur")
+      [ "$new" = "$cur" ] || t set -w -t "$TMUX_PANE" "$opt" "$new"
+    done
+  fi
   if [ "$had_prefix" != "$want_prefix" ]; then
     if [ -n "$want_prefix" ]; then t set -g @agent_state_tab_prefix "$want_prefix"; else t set -gu @agent_state_tab_prefix; fi
   fi
@@ -265,9 +291,9 @@ if [ "$state" = doctor ]; then
     2) row tabs "marker present in both window-status formats" ;;
     *) bad tabs "marker missing from the global window-status format(s): any agent event re-adds it" ;;
   esac
-  if [ -n "$TMUX" ]; then   # a theme that sets the formats at session scope hides the global marker
-    dsv=$(t show -sv window-status-format)
-    case "$dsv" in ''|*"$dmarker"*|*@agent_state*) ;; *) bad tabs "this session overrides window-status-format (a theme?): the marker is hidden here" ;; esac
+  if [ -n "$TMUX" ]; then   # a theme that sets the format at window scope hides the global marker there
+    dsv=$(t show -wv window-status-format)
+    case "$dsv" in ''|*"$dmarker"*|*@agent_state*) ;; *) bad tabs "this window overrides window-status-format (a theme?): its next agent event weaves the marker in" ;; esac
   fi
   dhooks=$(t show-hooks -g session-window-changed | grep -c 'agent-state.sh.*ack')
   case "$dhooks" in
@@ -303,6 +329,17 @@ if [ "$state" = uninstall ]; then
     [ -n "$o_marker_active" ] && body=${body//"$o_marker_active"/}
     [ -n "$o_tab_prefix" ] && body=${body//"$o_tab_prefix"/}
     [ "$body" = "$cur" ] || t set -g "$opt" "$body"
+  done
+  # window-scoped copies woven in over a theme's per-window formats
+  for opt in window-status-format window-status-current-format; do
+    while IFS= read -r w; do
+      [ -n "$w" ] || continue
+      cur=$(t show -wv -t "$w" "$opt"); [ -n "$cur" ] || continue
+      body=${cur//"$OLD_MARKER"/}; body=${body//"$umarker"/}
+      [ -n "$o_marker_active" ] && body=${body//"$o_marker_active"/}
+      [ -n "$o_tab_prefix" ] && body=${body//"$o_tab_prefix"/}
+      [ "$body" = "$cur" ] || t set -w -t "$w" "$opt" "$body"
+    done <<< "$(t list-windows -a -F '#{window_id}')"
   done
   while IFS= read -r line; do
     case "$line" in *agent-state.sh*ack*) idx=${line%%]*}; idx=${idx##*[}; t set-hook -gu "session-window-changed[$idx]" ;; esac
