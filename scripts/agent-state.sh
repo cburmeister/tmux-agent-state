@@ -68,7 +68,7 @@ OLD_MARKER='#{?#{==:#{@agent_state},blocked},#[fg=red bold] !,}#{?#{==:#{@agent_
 # This runs on every agent event (each tool call), so tmux processes per call are what cost;
 # test/run.sh pins the count. A format resolves an option name to its raw value (empty when
 # unset), so one display-message reads everything except the two status formats: those are read
-# with show -gv because a format would return a window/session-scoped value, or an expanded
+# with show -gv because a format would return the scope-resolved value, or an expanded
 # one before the first session exists, and we edit the global option only.
 US=$'\037'
 unus() {   # tmux 3.4 escapes non-printable output, so the separator arrives as a literal

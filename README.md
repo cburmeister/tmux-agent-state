@@ -300,8 +300,9 @@ Something not rendering?
 
 This prints what the plugin knows: the tmux version, where the script is
 published, whether the marker, ack hook, and key are wired (including whether
-a theme hides the marker at session scope), and how many panes report. It
-exits non-zero if something needs fixing, and says what.
+a theme overrides the format in this window, which the next agent event
+heals), and how many panes report. It exits non-zero if something needs
+fixing, and says what.
 
 ## Uninstall
 
