@@ -296,6 +296,8 @@ chk version-in-step "$(grep -o '^VERSION=[0-9.]*' "$H" | cut -d= -f2)/$(jq -r .v
 DP=$(sed -n "s/^DEFAULT_PROCESSES='\(.*\)'.*/\1/p" "$H")
 chk processes-default-in-docs "${DP:+set}/$(grep -cF "$DP" README.md)/$(grep -cF "$DP" adapters/README.md)" "set/1/1"
 # the Claude Code adapter's event -> word contract, as documented in README.md and adapters/README.md
+# PreToolUse deliberately matches AskUserQuestion only: plan approval (ExitPlanMode) already fires
+# PermissionRequest, so adding it would ring the bell twice for one prompt (see adapters/README.md)
 chk hooks-contract "$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "*") as $m | .hooks[].command | sub(".*agent-state.sh ";"") | "\($e):\($m)=\(.)"' hooks/hooks.json | tr '\n' ' ')" \
   "SessionStart:startup|resume|clear=idle UserPromptSubmit:*=working PreToolUse:AskUserQuestion=blocked PostToolUse:*=working PostToolUseFailure:*=working PermissionRequest:*=blocked PermissionDenied:*=working Notification:permission_prompt|elicitation_dialog|agent_needs_input=blocked Notification:idle_prompt=remind ElicitationResult:*=working Stop:*=done StopFailure:*=blocked SessionEnd:*=clear "
 # --- adapters: the documented mappings are pinned, and the snippets really run ---------------

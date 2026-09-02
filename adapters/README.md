@@ -50,7 +50,12 @@ fires no event for that word, so the tab simply skips that state.
 `blocked` is only as good as the agent's own permission event. Map every way
 the agent can wait on the human, not just permissions: Claude Code's
 `AskUserQuestion` is a tool call, so it needs its own hook or the pane sits at
-`working` while the agent waits for an answer.
+`working` while the agent waits for an answer. But never map the same wait
+twice: Claude Code's plan approval (`ExitPlanMode`) fires `PermissionRequest`
+like any other permission prompt (verified against 2.1.258, hook log in hand),
+so the `PreToolUse: ExitPlanMode` hook other tools add would be a second
+`blocked` for the same prompt here — and a second bell, because the bell
+deliberately rings on every `blocked` event.
 
 `test/run.sh` pins every mapping above (`hooks-contract`, and the
 `*-adapter-*` checks, which really execute the Codex and Gemini snippets and
