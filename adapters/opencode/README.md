@@ -24,5 +24,12 @@ curl -fsSL https://raw.githubusercontent.com/cburmeister/tmux-agent-state/main/a
 | `session.idle` | `done` |
 | `session.deleted` | `clear` |
 
+Two OpenCode quirks are handled so the tab doesn't flicker: subagents run in
+child sessions (created with a `parentID`) whose lifecycle events are ignored
+— a child finishing must not flip the tab to done mid-turn — while
+`permission.asked` is never filtered, since a child asking still needs you;
+and a user `message.updated` counts only on its first sighting per message id,
+because OpenCode re-fires it when the record is finalized at turn end.
+
 It resolves the script through `tmux show -gv @agent_state_script`, published
 by the tmux plugin (step 1 in the top-level README), and no-ops outside tmux.

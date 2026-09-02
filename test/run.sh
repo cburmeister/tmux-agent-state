@@ -321,15 +321,22 @@ if command -v node >/dev/null 2>&1; then
     process.env.TMUX = "t";
     const hooks = await TmuxAgentState({ $ });
     const fire = (type, properties) => hooks.event({ event: { type, properties } });
-    await fire("session.created");
-    await fire("message.updated", { info: { role: "user" } });
+    await fire("session.created", { info: { id: "s1" } });
+    await fire("message.updated", { info: { id: "m1", role: "user", sessionID: "s1" } });
     await fire("message.updated", { info: { role: "assistant" } });   // streaming: not a word
     await fire("tool.execute.after");
     await fire("permission.asked");
     await fire("permission.replied");
-    await fire("session.error");
-    await fire("session.idle");
-    await fire("session.deleted");
+    await fire("session.error", { sessionID: "s1" });
+    // a subagent: its lifecycle events must all stay silent (no idle, done, blocked, or clear)
+    await fire("session.created", { info: { id: "c1", parentID: "s1" } });
+    await fire("message.updated", { info: { id: "m2", role: "user", sessionID: "c1" } });
+    await fire("session.idle", { sessionID: "c1" });
+    await fire("session.error", { sessionID: "c1" });
+    await fire("session.deleted", { info: { id: "c1" } });
+    await fire("session.idle", { sessionID: "s1" });
+    await fire("message.updated", { info: { id: "m1", role: "user", sessionID: "s1" } });   // finalized at turn end: a re-fire, not a second working
+    await fire("session.deleted", { info: { id: "s1" } });
     delete process.env.TMUX;
     await fire("session.idle");   // outside tmux: reports nothing
     console.log(calls.map((c) => c.replace(/.* /, "")).join(" "));
